@@ -1,9 +1,6 @@
 from dwarv.controller.actions import Action
+from dwarv.models.suite import MODEL_ORDER
 from dwarv.types import Decision, State
-
-# The fixed, bundled 3-model suite, smallest to largest. Never an arbitrary
-# user-supplied model -- see DWARV_PLAN.md section 1.4 / 2.2.
-MODEL_ORDER = ["small", "medium", "large"]
 
 DEFAULT_WARN_FRACTION = 0.10
 DEFAULT_SAFETY_MARGIN = 0.10
