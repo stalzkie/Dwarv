@@ -1,14 +1,54 @@
-# The three bundled Qwen2.5-Coder models (small/medium/large). Filled in during
-# Step 1 (Offline-ready environment) and Step 3 (measured RSS table). This is a
-# fixed, curated suite -- never an arbitrary user-supplied model path.
+# The three bundled Qwen2.5-Coder models (small/medium/large) -- a fixed,
+# curated suite, never an arbitrary user-supplied model path. Verified on
+# Hugging Face 2026-10-09 (not blog figures); file_size_bytes is read back
+# from disk after download, not quoted from the model card.
 #
-# Each entry:
-#   id: short identifier used elsewhere (systems.yaml, controller state, models/suite.py)
-#   path: path to the .gguf file under ./cache/models/
-#   family: model family (Qwen2.5-Coder), so only size varies across small/medium/large
-#   quant: quantization (e.g. Q4_K_M)
-#   file_size_mb: verified on disk, not from blog posts
-#   ctx_sizes_tested: list of context sizes this entry has been profiled at
-#   measured_rss_mb: { <ctx_size>: rss_mb } -- measured during Step 3, drives Step 5's choice
-#   load_time_s: { <ctx_size>: seconds } -- measured during Step 3
-models: []
+# llama_cpp pins an exact numbered release (not "latest") per
+# DWARV_PLAN.md's "pin the build" requirement -- llama.cpp's flags/defaults
+# change often between builds.
+
+llama_cpp:
+  release_tag: b11516
+  release_url_base: https://github.com/ggml-org/llama.cpp/releases/download/b11516
+  assets: # (platform.system(), platform.machine()) -> [asset filename, archive type, executable name]
+    "Windows,AMD64": [llama-b11516-bin-win-cpu-x64.zip, zip, llama-server.exe]
+    "Windows,ARM64": [llama-b11516-bin-win-cpu-arm64.zip, zip, llama-server.exe]
+    "Linux,x86_64": [llama-b11516-bin-ubuntu-x64.tar.gz, tar.gz, llama-server]
+    "Darwin,x86_64": [llama-b11516-bin-macos-x64.tar.gz, tar.gz, llama-server]
+    "Darwin,arm64": [llama-b11516-bin-macos-arm64.tar.gz, tar.gz, llama-server]
+
+models:
+  - id: small
+    family: Qwen2.5-Coder
+    hf_repo: Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF
+    filename: qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
+    quant: Q4_K_M
+    license: apache-2.0
+    file_size_bytes: 1117320768
+    ctx_sizes_tested: [4096]
+    measured_rss_mb:
+      4096: 1727.5
+    load_time_s:
+      4096: 1.89
+
+  - id: medium
+    family: Qwen2.5-Coder
+    hf_repo: Qwen/Qwen2.5-Coder-7B-Instruct-GGUF
+    filename: qwen2.5-coder-7b-instruct-q4_k_m.gguf
+    quant: Q4_K_M
+    license: apache-2.0
+    file_size_bytes: null # fill in once the download completes
+    ctx_sizes_tested: []
+    measured_rss_mb: {}
+    load_time_s: {}
+
+  - id: large
+    family: Qwen2.5-Coder
+    hf_repo: Qwen/Qwen2.5-Coder-14B-Instruct-GGUF
+    filename: qwen2.5-coder-14b-instruct-q4_k_m.gguf
+    quant: Q4_K_M
+    license: apache-2.0
+    file_size_bytes: null # fill in once the download completes
+    ctx_sizes_tested: []
+    measured_rss_mb: {}
+    load_time_s: {}

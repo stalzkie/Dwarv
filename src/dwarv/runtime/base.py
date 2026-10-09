@@ -29,7 +29,10 @@ class RuntimeAdapter(Protocol):
 
     def unload(self) -> None: ...
 
-    def generate(self, prompt: str, params: GenParams) -> GenResult: ...
+    # messages: OpenAI-style [{"role": "user"/"assistant"/"system", "content": str}, ...] --
+    # multi-turn, needed for Step 6's conversation (evolved from a single-prompt signature
+    # once that requirement was added; see docs/DECISIONS.md).
+    def generate(self, messages: list[dict[str, str]], params: GenParams) -> GenResult: ...
 
     def pid(self) -> int | None: ...  # server pid for RSS reads
 
