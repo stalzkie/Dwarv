@@ -37,6 +37,14 @@ dwarv = "dwarv.cli:app"
 [tool.hatch.build.targets.wheel]
 packages = ["src/dwarv"]
 
+[tool.pytest.ini_options]
+# Without this, bare `pytest -q` (what CI runs) discovers test_*.py anywhere
+# under the repo root -- including scripts/demo_repo_template/tests/, which
+# is demo fixture content (copied into a disposable tmp dir at demo time,
+# never meant to be collected by the project's own suite) and fails collection
+# with the exact pytest import-path issue documented in docs/DECISIONS.md.
+testpaths = ["tests"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
