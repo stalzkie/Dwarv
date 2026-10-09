@@ -849,8 +849,18 @@ in practice) in `agent/prompts.py`. 10 new tests in `tests/test_prompts.py`,
 including one using real captured text from the live trials above, not
 hand-constructed. Full suite green (103 passed, 1 skipped).
 
-**Not yet built**: wiring this into `agent/session.py::ChatSession._turn()`
-to actually replace the `extract_patch()` call path -- that touches every
-`FakeRuntime`-scripted test in `tests/test_session.py` (which script
-fenced-block text today) and deserves its own focused migration pass
-rather than folding into the same change as the infrastructure above.
+**Migration done**: `ChatSession._turn()` now uses `structured_system_prompt()`,
+generates with `json_schema=DWARV_RESPONSE_SCHEMA`, and parses via
+`parse_structured_response()` -- `extract_patch()`/`system_prompt()`/
+`repair_prompt()` stay defined (and tested) but are no longer called from
+the live turn loop. Every `FakeRuntime`-scripted response in
+`tests/test_session.py` was converted to the real JSON shape rather than
+left as the old fenced-block text, so these tests now exercise the real
+parsing path, not a stand-in for it. Two new tests added:
+`MalformedStructuredResponse` degrades to showing the raw text rather than
+crashing a turn (schema-constrained generation should make this
+unreachable in practice, but the fallback itself is now proven, not just
+asserted), and a verified-fix reply now includes the model's own
+`message` -- a real improvement over the old behavior, which discarded
+every token of the model's own explanation and showed only the diff.
+Full suite green (105 passed, 1 skipped).

@@ -2,7 +2,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from dwarv.agent.prompts import extract_patch, repair_prompt, system_prompt
+from dwarv.agent.prompts import (
+    DWARV_RESPONSE_SCHEMA,
+    MalformedStructuredResponse,
+    parse_structured_response,
+    structured_repair_prompt,
+    structured_system_prompt,
+)
 from dwarv.controller.actions import Action
 from dwarv.controller.policy import RELOAD_ACTIONS, decide
 from dwarv.models.suite import (
@@ -122,7 +128,9 @@ class ChatSession:
         self.history.append(
             {
                 "role": "system",
-                "content": system_prompt(str(self.repo_ctx.root), self.repo_ctx.test_command),
+                "content": structured_system_prompt(
+                    str(self.repo_ctx.root), self.repo_ctx.test_command
+                ),
             }
         )
         snapshot = snapshot_repo_files(self.repo_ctx.root)
@@ -276,15 +284,31 @@ class ChatSession:
 
             budget.record_attempt()
             result = self.runtime.generate(
-                self.history, GenParams(temperature=temperature, max_tokens=DEFAULT_MAX_TOKENS)
+                self.history,
+                GenParams(
+                    temperature=temperature,
+                    max_tokens=DEFAULT_MAX_TOKENS,
+                    json_schema=DWARV_RESPONSE_SCHEMA,
+                ),
             )
-            blocks = extract_patch(result.text)
-
-            if not blocks:
+            try:
+                response = parse_structured_response(result.text)
+            except MalformedStructuredResponse:
+                # Schema-constrained generation should make this unreachable
+                # in practice (see agent/prompts.py's own docstring); if it
+                # ever happens anyway -- a crashed/killed server, a future
+                # llama.cpp regression -- degrade to showing the raw text
+                # rather than crashing the turn or silently losing it.
                 self.history.append({"role": "assistant", "content": result.text})
                 return result.text
 
-            patches = [make_patch(self.repo_ctx.root, path, content) for path, content in blocks]
+            if response.kind == "direct_answer" or not response.files:
+                self.history.append({"role": "assistant", "content": result.text})
+                return response.message
+
+            patches = [
+                make_patch(self.repo_ctx.root, path, content) for path, content in response.files
+            ]
             diff_display = "\n".join(p.diff_text for p in patches)
             self.logger.log(
                 "patch_proposed",
@@ -295,7 +319,10 @@ class ChatSession:
             if self.repo_ctx.test_command is None:
                 self._apply_for_real(patches)
                 self.history.append({"role": "assistant", "content": result.text})
-                return f"{diff_display}\n\nApplied -- UNVERIFIED (no test command discovered for this repo)."
+                return (
+                    f"{response.message}\n\n{diff_display}\n\n"
+                    "Applied -- UNVERIFIED (no test command discovered for this repo)."
+                )
 
             classified = self._verify_in_worktree(patches, self.repo_ctx.test_command)
             self.logger.log(
@@ -308,7 +335,7 @@ class ChatSession:
             if classified.failure_class == FailureClass.PASS:
                 self._apply_for_real(patches)
                 self.history.append({"role": "assistant", "content": result.text})
-                return f"{diff_display}\n\nApplied -- verified (tests pass)."
+                return f"{response.message}\n\n{diff_display}\n\nApplied -- verified (tests pass)."
 
             repeated_same_failure = (
                 repeated_same_failure + 1 if classified.failure_class == last_failure_class else 0
@@ -327,7 +354,7 @@ class ChatSession:
             if decision.action == Action.STOP_SAFELY:
                 self.history.append({"role": "assistant", "content": result.text})
                 return (
-                    f"{diff_display}\n\nNOT applied -- {decision.narration} "
+                    f"{response.message}\n\n{diff_display}\n\nNOT applied -- {decision.narration} "
                     f"(last failure: {classified.failure_class}: {classified.feedback})"
                 )
 
@@ -343,7 +370,10 @@ class ChatSession:
                 temperature = min(1.0, temperature + 0.3)
 
             self.history.append(
-                {"role": "user", "content": repair_prompt(result.text, classified.feedback)}
+                {
+                    "role": "user",
+                    "content": structured_repair_prompt(result.text, classified.feedback),
+                }
             )
 
     def _verify_in_worktree(self, patches: list[Patch], test_command: list[str]):

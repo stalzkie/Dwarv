@@ -1,3 +1,4 @@
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -5,6 +6,25 @@ from pathlib import Path
 from dwarv.agent.session import ChatSession
 from dwarv.controller.actions import Action
 from dwarv.runtime.base import GenResult
+
+
+def _direct_answer(message: str) -> str:
+    """Builds a DWARV_RESPONSE_SCHEMA-shaped direct_answer response, the
+    same structure a real schema-constrained generate() call returns (see
+    DWARV_PLAN.md section 11.8) -- FakeRuntime scripts this instead of
+    plain text so these tests exercise the real parsing path."""
+    return json.dumps({"kind": "direct_answer", "message": message, "files": []})
+
+
+def _patch_response(message: str, files: list[tuple[str, str]]) -> str:
+    return json.dumps(
+        {
+            "kind": "patch",
+            "message": message,
+            "files": [{"path": path, "content": content} for path, content in files],
+        }
+    )
+
 
 FAKE_MODELS_CONFIG = {
     "models": [
@@ -92,7 +112,7 @@ def _make_session(tmp_path: Path, responses: list[str]) -> tuple[ChatSession, Pa
 
 
 def test_direct_answer_no_code_block(tmp_path):
-    session, _repo = _make_session(tmp_path, ["The function looks fine to me."])
+    session, _repo = _make_session(tmp_path, [_direct_answer("The function looks fine to me.")])
 
     reply = session.handle_message("what does add() do?")
 
@@ -100,7 +120,9 @@ def test_direct_answer_no_code_block(tmp_path):
 
 
 def test_proposes_and_applies_a_verified_fix(tmp_path):
-    fixed = "```python:app.py\ndef add(a, b):\n    return a + b\n```"
+    fixed = _patch_response(
+        "Flipped the subtraction to addition.", [("app.py", "def add(a, b):\n    return a + b\n")]
+    )
     session, repo = _make_session(tmp_path, [fixed])
 
     reply = session.handle_message("fix the failing test")
@@ -110,8 +132,12 @@ def test_proposes_and_applies_a_verified_fix(tmp_path):
 
 
 def test_retries_with_feedback_then_succeeds(tmp_path):
-    broken = "```python:app.py\ndef add(a, b):\n    return a - b\n```"  # still wrong
-    fixed = "```python:app.py\ndef add(a, b):\n    return a + b\n```"
+    broken = _patch_response(
+        "Attempt 1.", [("app.py", "def add(a, b):\n    return a - b\n")]
+    )  # still wrong
+    fixed = _patch_response(
+        "Attempt 2, actually fixed now.", [("app.py", "def add(a, b):\n    return a + b\n")]
+    )
     session, repo = _make_session(tmp_path, [broken, fixed])
 
     reply = session.handle_message("fix the failing test")
@@ -123,7 +149,7 @@ def test_retries_with_feedback_then_succeeds(tmp_path):
 
 
 def test_gives_up_after_max_attempts_without_touching_real_file(tmp_path):
-    broken = "```python:app.py\ndef add(a, b):\n    return a - b\n```"
+    broken = _patch_response("Still trying.", [("app.py", "def add(a, b):\n    return a - b\n")])
     original = "def add(a, b):\n    return a - b\n"
     session, repo = _make_session(tmp_path, [broken] * 5)  # more than DEFAULT_MAX_ATTEMPTS
 
@@ -147,7 +173,7 @@ def test_unverified_apply_when_no_test_command(tmp_path):
     repo.mkdir()
     (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
     session = ChatSession(
-        runtime=FakeRuntime(["```python:app.py\nx = 2\n```"]),
+        runtime=FakeRuntime([_patch_response("Updated x.", [("app.py", "x = 2\n")])]),
         models_config=FAKE_MODELS_CONFIG,
         repo_dir=str(repo),
     )
@@ -157,6 +183,29 @@ def test_unverified_apply_when_no_test_command(tmp_path):
 
     assert "unverified" in reply.lower()
     assert (repo / "app.py").read_text(encoding="utf-8") == "x = 2\n"
+
+
+def test_malformed_response_degrades_to_raw_text_without_crashing(tmp_path):
+    """Schema-constrained generation should make this unreachable in
+    practice (see agent/prompts.py), but a killed/crashed server could in
+    principle still hand back something else -- the turn must degrade
+    gracefully, never raise an unhandled exception mid-conversation."""
+    session, _repo = _make_session(tmp_path, ["not valid json at all"])
+
+    reply = session.handle_message("what does add() do?")
+
+    assert reply == "not valid json at all"
+
+
+def test_verified_fix_reply_includes_the_models_own_message(tmp_path):
+    fixed = _patch_response(
+        "Flipped the subtraction to addition.", [("app.py", "def add(a, b):\n    return a + b\n")]
+    )
+    session, _repo = _make_session(tmp_path, [fixed])
+
+    reply = session.handle_message("fix the failing test")
+
+    assert "Flipped the subtraction to addition." in reply
 
 
 def test_resolve_reload_target_smaller_and_larger(tmp_path):
@@ -188,7 +237,7 @@ def test_squeeze_triggers_narrated_step_down_and_conversation_continues(tmp_path
     repo = tmp_path / "repo"
     repo.mkdir()
     _init_git_repo(repo)
-    runtime = FakeRuntime(["The function looks fine to me."])
+    runtime = FakeRuntime([_direct_answer("The function looks fine to me.")])
 
     session = ChatSession(
         runtime=runtime,
@@ -217,7 +266,7 @@ def test_squeeze_with_no_smaller_model_stops_safely_without_crashing(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     _init_git_repo(repo)
-    runtime = FakeRuntime(["second turn works fine"])
+    runtime = FakeRuntime([_direct_answer("second turn works fine")])
 
     session = ChatSession(
         runtime=runtime,

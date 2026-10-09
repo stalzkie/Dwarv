@@ -144,6 +144,19 @@ def repair_prompt(previous_response: str, feedback: str) -> str:
     )
 
 
+def structured_repair_prompt(previous_response: str, feedback: str) -> str:
+    """Section 11.8's variant of repair_prompt() -- doesn't need to remind
+    the model of a format convention since the schema enforces the shape
+    mechanically; only needs to hand back the failure and the prior attempt."""
+    return (
+        "Your previous attempt did not pass verification. Failure details:\n"
+        f"{feedback}\n\n"
+        "Your previous attempt was:\n"
+        f"{previous_response}\n\n"
+        "Produce a corrected response in the same structured format."
+    )
+
+
 def extract_patch(text: str) -> list[tuple[str, str]]:
     """Pull every ```<language>:<relative/path> fenced block out of model
     output. Returns [(relative_path, new_file_content), ...] in the order
