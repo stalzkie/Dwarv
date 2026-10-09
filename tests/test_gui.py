@@ -156,6 +156,10 @@ def test_server_api_session_and_static_files(tmp_path):
 
     index = client.get("/")
     assert index.status_code == 200
+
+    logo = client.get("/logo.png")
+    assert logo.status_code == 200
+    assert logo.headers["content-type"] == "image/png"
     assert "dwarv" in index.text.lower()
 
     flow = client.get("/flow.json")

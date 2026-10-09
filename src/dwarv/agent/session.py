@@ -485,6 +485,24 @@ class ChatSession:
         return table
 
 
+# Pure ASCII, deliberately -- generated via scripts/generate_banner.py from
+# docs/assets/logo.png. A Unicode block character here would risk the exact
+# class of bug render.py's own styling already hit and fixed: UnicodeEncodeError
+# on a legacy Windows console (cp1252), which has no block-drawing characters.
+_BANNER = """\
+              ###
+            ### ###    ##  #
+           #### #### ########
+        #############  ## ###
+     #######  # #  ######  #
+    ##########   #########
+    ######################
+     #### ###########  ##
+         #####   ####  #
+
+  DWARV -- a local, conversational coding assistant
+"""
+
 _HELP_TEXT = (
     "/status           current model, sandbox tier, repo info, live RSS, last decision\n"
     "/squeeze <MB>      demo/dev only: cut the RAM budget to <MB> on the next turn, to\n"
@@ -500,6 +518,7 @@ def run_repl(llama_server_path: str, cache_dir: str, repo_dir: str = ".") -> Non
     from dwarv.agent.render import style_narration, style_reply
 
     console = Console()
+    console.print(f"[blue]{_BANNER}[/blue]")
     # ChatSession's print_fn contract stays plain text (unchanged, still
     # trivially fake-able in tests) -- styling is applied here, at the
     # display boundary, not inside the session's own logic.

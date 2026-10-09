@@ -63,6 +63,12 @@ body {
   border: 1px solid var(--border-bright);
 }
 
+.terminal-logo {
+  height: 16px;
+  width: auto;
+  margin-left: 10px;
+}
+
 .terminal-title {
   margin-left: 8px;
   color: var(--muted);

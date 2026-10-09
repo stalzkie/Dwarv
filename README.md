@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/logo.png" alt="Dwarv" width="220" />
+</p>
+
 # Dwarv
 
 A local, conversational coding assistant — "a local Claude Code" — with a bundled suite of three Qwen2.5-Coder models (1.5B / 7B / 14B). At the start of each session Dwarv reads your real CPU/RAM/GPU, picks the model that fits, and explains why out loud. When there's something to verify against (your repo's own tests), it checks its work in a disposable copy of your working tree before touching your real files, and retries with the actual failure feedback instead of guessing again blindly. If memory gets tight mid-conversation, it says so and steps down to a smaller model instead of hanging or crashing.

@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from dwarv.agent.session import ChatSession
+from dwarv.agent.session import _BANNER, ChatSession
 from dwarv.controller.actions import Action
 from dwarv.runtime.base import GenResult
 
@@ -290,3 +290,12 @@ def test_squeeze_with_no_smaller_model_stops_safely_without_crashing(tmp_path):
     # fired once, won't re-fire) works normally again
     reply2 = session.handle_message("ok, try again")
     assert reply2 == "second turn works fine"
+
+
+def test_banner_is_pure_ascii():
+    """Regression guard, same reasoning as render.py's own: a Unicode
+    character in a fixed startup string already crashed outright with
+    UnicodeEncodeError on a legacy Windows console (cp1252), confirmed
+    live earlier this session. The banner is printed on every launch, so
+    it's exactly the kind of fixed decoration that must never regress."""
+    assert _BANNER.isascii()
