@@ -2,7 +2,7 @@ import json
 import platform
 import subprocess
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -151,7 +151,7 @@ def run_harness(
         "seeds": seeds,
         "ctx_size": ctx_size,
         "git_commit": _git_commit_hash(),
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     with open(run_dir / "config.json", "w", encoding="utf-8") as f:
         json.dump(config_snapshot, f, indent=2)
