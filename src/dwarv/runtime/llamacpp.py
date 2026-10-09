@@ -113,6 +113,15 @@ class LlamaCppRuntime:
             payload["seed"] = params.seed
         if params.stop:
             payload["stop"] = params.stop
+        if params.json_schema is not None:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "dwarv_response",
+                    "strict": True,
+                    "schema": params.json_schema,
+                },
+            }
         start = time.monotonic()
         resp = self._client.post("/v1/chat/completions", json=payload)
         resp.raise_for_status()

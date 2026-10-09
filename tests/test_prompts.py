@@ -1,4 +1,14 @@
-from dwarv.agent.prompts import extract_patch, repair_prompt, system_prompt
+import pytest
+
+from dwarv.agent.prompts import (
+    DWARV_RESPONSE_SCHEMA,
+    MalformedStructuredResponse,
+    extract_patch,
+    parse_structured_response,
+    repair_prompt,
+    structured_system_prompt,
+    system_prompt,
+)
 
 
 def test_extract_patch_single_file():
@@ -39,3 +49,65 @@ def test_repair_prompt_includes_feedback():
     prompt = repair_prompt("previous code", "AssertionError: expected 5, got 4")
     assert "AssertionError" in prompt
     assert "previous code" in prompt
+
+
+def test_structured_system_prompt_mentions_test_command_when_present():
+    prompt = structured_system_prompt("/repo", ["pytest"])
+    assert "pytest" in prompt
+
+
+def test_structured_system_prompt_says_no_test_command_when_absent():
+    prompt = structured_system_prompt("/repo", None)
+    assert "No test command was discoverable" in prompt
+
+
+def test_response_schema_requires_kind_message_files():
+    assert set(DWARV_RESPONSE_SCHEMA["required"]) == {"kind", "message", "files"}
+    assert DWARV_RESPONSE_SCHEMA["properties"]["kind"]["enum"] == ["direct_answer", "patch"]
+
+
+def test_parse_structured_response_direct_answer():
+    result = parse_structured_response(
+        '{"kind": "direct_answer", "message": "it is 4", "files": []}'
+    )
+    assert result.kind == "direct_answer"
+    assert result.message == "it is 4"
+    assert result.files == []
+
+
+def test_parse_structured_response_patch_with_files():
+    # Real text captured from a live llama-server call against the real
+    # small model with --json-schema, not hand-constructed.
+    text = (
+        '{\n  "kind": "patch",\n  "message": "The function `add` should add, not subtract.",\n'
+        '  "files": [\n    {\n      "path": "app.py",\n'
+        '      "content": "def add(a, b): return a + b"\n    }\n  ]\n}'
+    )
+    result = parse_structured_response(text)
+    assert result.kind == "patch"
+    assert result.files == [("app.py", "def add(a, b): return a + b")]
+
+
+def test_parse_structured_response_rejects_invalid_json():
+    with pytest.raises(MalformedStructuredResponse, match="not valid JSON"):
+        parse_structured_response("not json at all")
+
+
+def test_parse_structured_response_rejects_non_object():
+    with pytest.raises(MalformedStructuredResponse, match="expected a JSON object"):
+        parse_structured_response("[1, 2, 3]")
+
+
+def test_parse_structured_response_rejects_bad_kind():
+    with pytest.raises(MalformedStructuredResponse, match="'kind'"):
+        parse_structured_response('{"kind": "something_else", "message": "x", "files": []}')
+
+
+def test_parse_structured_response_rejects_missing_message():
+    with pytest.raises(MalformedStructuredResponse, match="'message'"):
+        parse_structured_response('{"kind": "direct_answer", "files": []}')
+
+
+def test_parse_structured_response_rejects_malformed_file_entry():
+    with pytest.raises(MalformedStructuredResponse, match="malformed file entry"):
+        parse_structured_response('{"kind": "patch", "message": "x", "files": [{"path": "a.py"}]}')

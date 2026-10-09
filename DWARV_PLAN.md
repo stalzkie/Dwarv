@@ -805,17 +805,52 @@ the Step 10 demo's two-file toy case).
 
 ### 11.8 Grammar-constrained structured patch generation
 
-Replace free-form generation + `extract_patch()`'s regex-based fence
-parsing with a GBNF grammar (or `--json-schema`) passed to `llama-server`
-that constrains the model's output to the exact patch structure Dwarv
-expects. Confirmed real and already available (`llama-server --help`
-lists `--grammar`/`--grammar-file`/`-j, --json-schema`/`-jf,
---json-schema-file` in the pinned build). Expected real benefits: fewer
-generated tokens (no prose preamble/postamble around the code -- direct
-speed win, token count drives both time and compute), and "model forgot
-to fence the code" becomes structurally impossible rather than a failure
-mode `extract_patch()` has to detect after the fact. Not yet built: the
-actual grammar/schema definition for Dwarv's patch format, wiring it
-through `runtime/llamacpp.py`'s generate() call, and a real before/after
-comparison (token count, wall time, parse-failure rate) on live model
-output -- this is the next concrete implementation step.
+Replaces free-form generation + `extract_patch()`'s regex-based fence
+parsing with a JSON Schema (`agent/prompts.py::DWARV_RESPONSE_SCHEMA`)
+passed to `llama-server` via its OpenAI-compatible `response_format`
+field, constraining the model's output to `{kind, message, files}`.
+
+**Live-tested against the real small model and real `llama-server`
+before writing any product code** (not assumed from the flag existing):
+
+- **The failure this fixes is real, not hypothetical.** The baseline
+  (today's fenced-block prompt) was given the exact same bug twice. Trial
+  1: the model emitted ` ```python ` instead of ` ```python:app.py ` --
+  `extract_patch()`'s regex requires the `:path` suffix and would have
+  silently matched nothing. Trial 2 (a different bug): the model echoed
+  the bug description back as a comment instead of fixing anything --
+  `extract_patch()` would have correctly found no fence and reported
+  `EMPTY_OR_NO_CODE`, but only *after* a wasted generation.
+- **Schema-constrained generation produced valid, parseable JSON in every
+  trial** (3/3, two different bugs), correctly distinguishing `patch` vs
+  what a `direct_answer` would use.
+- **One expectation here was wrong, and is corrected rather than left
+  standing: token count went *up*, not down.** 17 tokens unconstrained vs.
+  65 constrained for the same small patch -- JSON structural overhead
+  (braces, quoted field names) outweighs the savings from skipping prose,
+  at least at this patch size. The real, confirmed benefit is **reliable
+  structure**, not fewer tokens; the original "direct speed win" framing
+  was a guess that live testing did not support and is withdrawn.
+- **Grammar-constraining the format does not fix (or worsen) task
+  capability.** In the trial where the baseline echoed the bug back
+  unfixed, the schema-constrained version also failed to fix it --
+  valid JSON, `"content"` unchanged from the buggy input. These are
+  orthogonal: the schema guarantees *shape*, never *correctness*.
+
+**Built**: `GenParams.json_schema` (`runtime/base.py`), wired through
+`LlamaCppRuntime.generate()`'s `response_format` payload
+(`runtime/llamacpp.py`); `DWARV_RESPONSE_SCHEMA`,
+`structured_system_prompt()`, `StructuredResponse`,
+`parse_structured_response()` (defensive -- raises
+`MalformedStructuredResponse` rather than crashing a turn, since a
+killed/crashed server could in principle still hand back something else
+even though schema-constrained generation should make that unreachable
+in practice) in `agent/prompts.py`. 10 new tests in `tests/test_prompts.py`,
+including one using real captured text from the live trials above, not
+hand-constructed. Full suite green (103 passed, 1 skipped).
+
+**Not yet built**: wiring this into `agent/session.py::ChatSession._turn()`
+to actually replace the `extract_patch()` call path -- that touches every
+`FakeRuntime`-scripted test in `tests/test_session.py` (which script
+fenced-block text today) and deserves its own focused migration pass
+rather than folding into the same change as the infrastructure above.

@@ -9,6 +9,11 @@ class GenParams:
     max_tokens: int = 1024
     seed: int | None = None
     stop: list[str] | None = None
+    # DWARV_PLAN.md section 11.8: constrains generation to a JSON Schema via
+    # llama-server's OpenAI-compatible response_format field (confirmed real
+    # in the pinned build -- llama-server --help lists -j/--json-schema).
+    # None means unconstrained free-form generation, today's behavior.
+    json_schema: dict | None = None
 
 
 @dataclass
