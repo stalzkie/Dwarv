@@ -152,24 +152,62 @@ def _call_target_name(call_node: ast.Call) -> str | None:
     return None
 
 
+def _render_source_blocks(
+    graph: RepoGraph, sym_ids: list[str], max_total_chars: int
+) -> tuple[str, bool]:
+    """Renders each symbol's real source as a fenced block, stopping once
+    max_total_chars would be exceeded. Returns (text, truncated) so a
+    caller can tell "everything fit" apart from "this is a partial dump"
+    -- query_relevant_context's whole-repo fallback below needs that
+    distinction to know whether a table-of-contents is actually necessary."""
+    blocks = []
+    total = 0
+    truncated = False
+    for sym_id in sym_ids:
+        sym = graph.symbols[sym_id]
+        block = (
+            f"```python:{sym.file}  (lines {sym.line_start}-{sym.line_end})\n{sym.source}\n```\n"
+        )
+        if total + len(block) > max_total_chars:
+            truncated = True
+            break
+        blocks.append(block)
+        total += len(block)
+    return "\n".join(blocks), truncated
+
+
 def query_relevant_context(graph: RepoGraph, query_text: str, max_total_chars: int = 4000) -> str:
     """Finds symbols named in `query_text` (exact, case-sensitive name
-    match against known function/class names -- simple and precise rather
-    than fuzzy, matching the Graphify-inspired "cited, not approximate"
-    goal), includes their source plus immediate callers/callees, and falls
-    back to a table-of-contents (symbol signatures only, no bodies) when
-    nothing matches so a vague question still gets *something* oriented
-    rather than silence. Bounded by max_total_chars like
-    snapshot_repo_files() was, so this is a strict budget reduction, not
-    an unbounded addition."""
+    match against known function/class names, or a mentioned file's own
+    basename -- simple and precise rather than fuzzy, matching the
+    Graphify-inspired "cited, not approximate" goal), includes their
+    source plus immediate callers/callees (or, for a file match, every
+    symbol in that file). When nothing matches by name at all -- a vague
+    "fix the bug" with no symbol/file named, live-observed to be a real
+    failure mode on a tiny demo repo where the model never saw the actual
+    buggy code -- falls back to the FULL repo's source if that fits the
+    budget (common for a small repo, where there's nothing to gain by
+    hiding it), and only to a bodiless table-of-contents when the repo is
+    genuinely too large to dump whole. Bounded by max_total_chars like
+    snapshot_repo_files() was, so this is a strict budget reduction for
+    large repos, not an unbounded addition."""
     words = {w.strip("()[]{}:,.\"'") for w in query_text.split()}
+    mentioned_files = {f for f in graph.file_symbols if Path(f).name in words or f in words}
+
     matched = [
         sym_id
         for sym_id, sym in graph.symbols.items()
-        if sym.name in words or sym.name.rsplit(".", 1)[-1] in words
+        if sym.name in words or sym.name.rsplit(".", 1)[-1] in words or sym.file in mentioned_files
     ]
 
     if not matched:
+        # Nothing named a known symbol or file -- try the whole repo
+        # before giving up to a bodiless table of contents; for a small
+        # repo this is cheap and means a vague "fix the bug" still sees
+        # real code instead of just symbol names.
+        whole_text, truncated = _render_source_blocks(graph, list(graph.symbols), max_total_chars)
+        if not truncated:
+            return whole_text
         return _table_of_contents(graph, max_total_chars)
 
     include_ids: list[str] = []
@@ -183,18 +221,8 @@ def query_relevant_context(graph: RepoGraph, query_text: str, max_total_chars: i
                 include_ids.append(neighbor_id)
                 seen.add(neighbor_id)
 
-    blocks = []
-    total = 0
-    for sym_id in include_ids:
-        sym = graph.symbols[sym_id]
-        block = (
-            f"```python:{sym.file}  (lines {sym.line_start}-{sym.line_end})\n{sym.source}\n```\n"
-        )
-        if total + len(block) > max_total_chars:
-            break
-        blocks.append(block)
-        total += len(block)
-    return "\n".join(blocks)
+    text, _truncated = _render_source_blocks(graph, include_ids, max_total_chars)
+    return text
 
 
 def _table_of_contents(graph: RepoGraph, max_total_chars: int) -> str:

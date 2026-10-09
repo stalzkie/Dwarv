@@ -106,7 +106,28 @@ def test_query_relevant_context_is_smaller_than_whole_repo_dump(tmp_path):
     assert len(context) < whole_repo_chars
 
 
-def test_query_relevant_context_falls_back_to_table_of_contents(tmp_path):
+def test_query_relevant_context_matches_a_mentioned_file_even_without_a_symbol_name(tmp_path):
+    """Real demo phrasing ("look at app.py and fix the bug") names the
+    file but never the function -- this must match on the file mention
+    and include every symbol actually defined in that file, not just
+    fall through to table-of-contents or whole-repo mode."""
+    _write_sample_repo(tmp_path)
+    graph = build_graph(tmp_path)
+
+    context = query_relevant_context(graph, "look at app.py and fix the bug")
+
+    assert "def helper(x):" in context
+    assert "def add(a, b):" in context
+    assert "class Cache" not in context  # models.py wasn't mentioned
+
+
+def test_query_relevant_context_vague_query_on_small_repo_gets_full_source(tmp_path):
+    """Real bug found live running the demo script: a vague "fix the bug"
+    that never names a known symbol or file used to fall back to a bare
+    table of contents (no source bodies at all), so on a small repo the
+    model never saw the actual buggy code it was asked to fix. For a repo
+    small enough to fit the budget whole, there's nothing to gain from
+    hiding it -- this should see the real source, not just names."""
     _write_sample_repo(tmp_path)
     graph = build_graph(tmp_path)
 
@@ -114,6 +135,24 @@ def test_query_relevant_context_falls_back_to_table_of_contents(tmp_path):
 
     assert "app.py" in context
     assert "models.py" in context
+    assert "return x * 2" in context  # real source, not just a signature
+    assert "class Cache" in context
+
+
+def test_query_relevant_context_vague_query_on_large_repo_falls_back_to_table_of_contents(
+    tmp_path,
+):
+    """The table-of-contents fallback still exists for when a vague query
+    genuinely can't be answered with full source -- forced here via a
+    tiny max_total_chars that even one real function body would exceed,
+    simulating a repo too large to dump whole."""
+    _write_sample_repo(tmp_path)
+    graph = build_graph(tmp_path)
+
+    context = query_relevant_context(
+        graph, "what does this repo do in general", max_total_chars=200
+    )
+
     assert "function helper" in context
     assert "class Cache" in context
     # no full source bodies in the fallback -- just a table of contents
