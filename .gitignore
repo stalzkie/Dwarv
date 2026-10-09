@@ -8,5 +8,5 @@ dist/
 cache/
 .pytest_cache/
 .ruff_cache/
-eval_results/*
-!eval_results/.gitkeep
+# eval_results/ raw run output is intentionally committed (see DWARV_PLAN.md
+# section 3) -- same "keep real history" philosophy as benchmarks/history/.

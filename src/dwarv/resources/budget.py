@@ -2,6 +2,16 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
+
+DEFAULT_BUDGETS_CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "budgets.yaml"
+
+
+def load_budgets_config(path: str | Path = DEFAULT_BUDGETS_CONFIG_PATH) -> dict:
+    import yaml
+
+    with open(path, encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
 
 
 class BudgetStatus(Enum):

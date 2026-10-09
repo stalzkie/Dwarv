@@ -250,9 +250,37 @@ def check_offline() -> None:
 
 
 @app.command()
-def eval() -> None:
-    """Run the internal eval harness (developer tool; never the end-user surface). (not yet implemented)"""
-    console.print("[yellow]dwarv eval is not implemented yet (Step 9, internal only).[/yellow]")
+def eval(
+    run_id: str = typer.Option(..., help="Unique id for this run; re-using one resumes it."),  # noqa: B008
+    systems: list[str] = typer.Option(  # noqa: B008
+        ["fixed", "retry", "retry_escalate", "dwarv"], help="Systems to run."
+    ),
+    profiles: list[str] = typer.Option(  # noqa: B008
+        ["static_loose"], help="Budget profiles (configs/budgets.yaml)."
+    ),
+    n_tasks: int = typer.Option(5, help="How many tasks from eval_tasks/subset_v1.json to run."),  # noqa: B008
+    seeds: list[int] = typer.Option([1], help="Seeds (repeat runs for variance)."),  # noqa: B008
+) -> None:
+    """Run the internal eval harness -- a developer tool, never the end-user
+    surface. Writes to eval_results/<run_id>/ and prints the summary table."""
+    import json
+
+    from dwarv.eval.analyze import analyze_run
+    from dwarv.eval.harness import EVAL_RESULTS_DIR, run_harness
+
+    subset_path = Path(__file__).resolve().parents[2] / "eval_tasks" / "subset_v1.json"
+    with open(subset_path, encoding="utf-8") as f:
+        subset = json.load(f)
+    task_ids = subset["task_ids"][:n_tasks]
+
+    cache_dir = str(_cache_dir())
+    console.print(
+        f"[bold]dwarv eval[/bold] run_id={run_id} tasks={len(task_ids)} systems={systems} profiles={profiles}"
+    )
+    jsonl_path = run_harness(run_id, systems, profiles, task_ids, seeds, cache_dir)
+    analyze_run(jsonl_path.parent)
+    console.print(f"[green]Done.[/green] Results in {EVAL_RESULTS_DIR / run_id}")
+    console.print((jsonl_path.parent / "summary.md").read_text(encoding="utf-8"))
 
 
 @app.command()

@@ -7,16 +7,17 @@ policy:
   feedback_signals_enabled: true  # ablation (internal eval only): set false to ignore failure type
   resource_signals_enabled: true  # ablation (internal eval only): set false to ignore headroom
 
-baselines: {}  # Step 9 internal eval only -- never used by the live chat session
-# Example shape:
-#
-# baselines:
-#   fixed:                 # Baseline A: one model, one ctx, single generation, no retries
-#     model_id: ""
-#     ctx_size: 0
-#   retry:                 # Baseline C: verification-guided retry, no resource awareness
-#     model_id: ""
-#     ctx_size: 0
-#     max_attempts: 0
-#   retry_escalate:        # Baseline C+: retries + model escalation, no resource awareness
-#     max_attempts: 0
+# Step 9 internal eval only -- never used by the live chat session. "small" is
+# the deliberately modest fixed choice for A/C (a well-chosen-but-static
+# config); C+ and Dwarv both have the full bundled suite (models/suite.MODEL_ORDER)
+# available to escalate into.
+baselines:
+  fixed: # Baseline A: one model, one ctx, single generation, no retries
+    model_id: small
+    ctx_size: 4096
+  retry: # Baseline C: verification-guided retry, same model, no resource awareness
+    model_id: small
+    ctx_size: 4096
+    max_attempts: 3
+  retry_escalate: # Baseline C+: retries + model escalation, no resource awareness
+    max_attempts: 3

@@ -3,26 +3,27 @@
 # used only by the Step 9 internal eval harness and the Step 8 demo.
 # MB values must be derived from the measured RSS table in models.yaml, not guessed.
 
-profiles: {}
-# Example shape, to fill in once models.yaml has measured RSS:
-#
-# profiles:
-#   static_tight:
-#     ram_limit_mb: 0            # constant limit; only small + medium fit
-#     time_limit_s: 0
-#     max_attempts: 0
-#   static_loose:
-#     ram_limit_mb: 0            # constant limit; medium fits comfortably
-#     time_limit_s: 0
-#     max_attempts: 0
-#   squeeze_mid:
-#     ram_limit_mb: 0            # starting (loose) limit
-#     time_limit_s: 0
-#     max_attempts: 0
-#     squeeze:
-#       mode: budget_cut         # budget_cut | competing_process
-#       trigger: { after_attempt: 1 }
-#       new_ram_limit_mb: 0      # tight limit after the cut
+# Derived from configs/models.yaml's measured RSS (small=1727.3, medium=7458.5,
+# large=9965.0 MB at ctx 4096) and the safety_margin below (0.10), per
+# DWARV_PLAN.md Step 8: "derive the actual MB thresholds from the measured
+# RSS table, not guesses." budget_mb = ram_limit_mb * (1 - safety_margin).
+profiles:
+  static_tight:
+    ram_limit_mb: 8300.0 # budget ~7470MB: small + medium fit, large does not
+    time_limit_s: 180.0
+    max_attempts: 3
+  static_loose:
+    ram_limit_mb: 12000.0 # budget ~10800MB: all three fit comfortably
+    time_limit_s: 180.0
+    max_attempts: 3
+  squeeze_mid:
+    ram_limit_mb: 12000.0 # starts loose (all three fit)...
+    time_limit_s: 180.0
+    max_attempts: 3
+    squeeze:
+      mode: budget_cut # budget_cut | competing_process (competing_process is demo-only, unimplemented)
+      trigger: { after_attempt: 1 }
+      new_ram_limit_mb: 2200.0 # ...then cuts to budget ~1980MB: only small fits
 
 warn_fraction: 0.10       # headroom below this fraction of the limit -> WARN
 safety_margin: 0.10       # fraction of the limit reserved before choosing a model
