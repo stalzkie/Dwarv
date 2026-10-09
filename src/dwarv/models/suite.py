@@ -31,6 +31,45 @@ def estimate_rss_mb(file_size_bytes: int) -> float:
     return (file_size_bytes / (1024 * 1024)) * QUANT_RSS_ESTIMATE_FACTOR
 
 
+# DWARV_PLAN.md section 11.3: GPU-offload sizing, same "estimate from file
+# size, pad with a safety margin" pattern as the RAM-side constants above.
+# VRAM_ESTIMATE_FACTOR is a real live measurement, not a guess: loading
+# the bundled "large" model (14B IQ2_M, 4.98GiB file) fully offloaded
+# (-ngl 99) on a real RTX 3050 used 5683MiB of VRAM (6385MiB total minus
+# 702MiB baseline, via nvidia-smi) -- ratio 1.114, rounded up slightly.
+# Only one tier was measured live this session (small/medium attempts
+# were blocked by shell tooling issues, not re-attempted given time);
+# the RAM-side measurements above show smaller models carry proportionally
+# *more* fixed overhead than large ones (1.62/1.67 vs 1.16), so
+# DEFAULT_VRAM_SAFETY_MARGIN adds real headroom on top of the one
+# measured ratio rather than assuming it holds across all three tiers.
+VRAM_ESTIMATE_FACTOR = 1.15
+DEFAULT_VRAM_SAFETY_MARGIN = 0.15
+
+
+def estimate_vram_mb(file_size_bytes: int) -> float:
+    return (file_size_bytes / (1024 * 1024)) * VRAM_ESTIMATE_FACTOR
+
+
+def choose_gpu_layers(
+    file_size_bytes: int,
+    vram_mb: float | None,
+    safety_margin: float = DEFAULT_VRAM_SAFETY_MARGIN,
+) -> int:
+    """Returns 99 (llama.cpp's "offload every layer" convention) if the
+    model comfortably fits in VRAM with margin for its own KV-cache and
+    context buffers, else 0 (CPU-only -- llama.cpp's own existing, always-
+    safe default). Deliberately binary rather than computing a partial
+    per-layer count: real measurement confirmed all three of Dwarv's
+    bundled models fit entirely within an 8GB GPU with room to spare, so
+    partial-offload tuning isn't needed for this fixed model suite.
+    `vram_mb=None` (no GPU detected) always returns 0."""
+    if not vram_mb or vram_mb <= 0:
+        return 0
+    needed_mb = estimate_vram_mb(file_size_bytes) * (1 + safety_margin)
+    return 99 if needed_mb <= vram_mb else 0
+
+
 def load_models_config(path: str | Path = DEFAULT_MODELS_CONFIG_PATH) -> dict:
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}

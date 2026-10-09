@@ -1,7 +1,9 @@
 from dwarv.models.suite import (
     Hardware,
+    choose_gpu_layers,
     choose_model,
     estimate_rss_mb,
+    estimate_vram_mb,
     find_best_quant_for_tier,
     find_quant_entry,
     quant_rss_mb,
@@ -89,6 +91,38 @@ FAKE_MODELS_WITH_QUANTS = [
 def test_estimate_rss_mb_uses_conservative_factor():
     # 1GB file -> 1024MB * 1.67
     assert estimate_rss_mb(1024 * 1024 * 1024) == 1024 * 1.67
+
+
+# DWARV_PLAN.md section 11.3 -- real live measurement on an RTX 3050:
+# the "large" model (14B IQ2_M, 5356146912 bytes = 4.985GiB) fully
+# offloaded used 5683MiB of VRAM (6385MiB total minus a 702MiB baseline,
+# via nvidia-smi 2026-10-10). That's the ratio VRAM_ESTIMATE_FACTOR is
+# built from.
+LARGE_FILE_SIZE_BYTES = 5356146912
+LARGE_REAL_VRAM_USED_MB = 5683.0
+
+
+def test_estimate_vram_mb_is_close_to_the_real_measurement():
+    estimate = estimate_vram_mb(LARGE_FILE_SIZE_BYTES)
+    # The factor is a slightly-padded round-up of the real ratio (1.114),
+    # so the estimate should sit at or just above the real measurement,
+    # not wildly off in either direction.
+    assert LARGE_REAL_VRAM_USED_MB <= estimate <= LARGE_REAL_VRAM_USED_MB * 1.1
+
+
+def test_choose_gpu_layers_fits_with_headroom():
+    # 8192MB VRAM (this session's real RTX 3050) comfortably fits the
+    # large model's real ~5683MB footprint plus margin.
+    assert choose_gpu_layers(LARGE_FILE_SIZE_BYTES, vram_mb=8192.0) == 99
+
+
+def test_choose_gpu_layers_too_little_vram_stays_cpu_only():
+    assert choose_gpu_layers(LARGE_FILE_SIZE_BYTES, vram_mb=4096.0) == 0
+
+
+def test_choose_gpu_layers_no_gpu_detected_stays_cpu_only():
+    assert choose_gpu_layers(LARGE_FILE_SIZE_BYTES, vram_mb=None) == 0
+    assert choose_gpu_layers(LARGE_FILE_SIZE_BYTES, vram_mb=0.0) == 0
 
 
 def test_find_quant_entry_found_and_missing():

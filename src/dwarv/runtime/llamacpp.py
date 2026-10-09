@@ -33,11 +33,12 @@ class LlamaCppRuntime:
         self._process: subprocess.Popen | None = None
         self._model_id: str | None = None
         self._ctx_size: int | None = None
+        self._gpu_layers: int = 0
         self._port: int | None = None
         self._client: httpx.Client | None = None
         atexit.register(self.unload)
 
-    def load(self, model_id: str, ctx_size: int) -> float:
+    def load(self, model_id: str, ctx_size: int, gpu_layers: int = 0) -> float:
         if model_id not in self._model_paths:
             raise KeyError(f"unknown model_id {model_id!r}; known: {sorted(self._model_paths)}")
         # Found running the real eval harness: every baseline calls load() at
@@ -52,6 +53,7 @@ class LlamaCppRuntime:
         if (
             model_id == self._model_id
             and ctx_size == self._ctx_size
+            and gpu_layers == self._gpu_layers
             and self._process is not None
             and self._process.poll() is None
         ):
@@ -70,6 +72,13 @@ class LlamaCppRuntime:
             "127.0.0.1",
             *self._extra_args,
         ]
+        # DWARV_PLAN.md section 11.3: gpu_layers=0 (the default) omits -ngl
+        # entirely rather than passing "-ngl 0" -- behaviorally identical,
+        # but this way a GPU-capable binary's command line is byte-for-byte
+        # what it's always been for every caller that never opts into GPU
+        # offload (no behavior change for the common case).
+        if gpu_layers:
+            args += ["-ngl", str(gpu_layers)]
         start = time.monotonic()
         self._process = subprocess.Popen(
             args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
@@ -78,6 +87,7 @@ class LlamaCppRuntime:
         load_s = time.monotonic() - start
         self._model_id = model_id
         self._ctx_size = ctx_size
+        self._gpu_layers = gpu_layers
         self._client = httpx.Client(base_url=f"http://127.0.0.1:{self._port}", timeout=180.0)
         return load_s
 
@@ -114,6 +124,7 @@ class LlamaCppRuntime:
             self._process = None
         self._model_id = None
         self._ctx_size = None
+        self._gpu_layers = 0
         self._port = None
 
     def generate(self, messages: list[dict[str, str]], params: GenParams) -> GenResult:

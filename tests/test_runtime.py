@@ -93,6 +93,39 @@ def test_load_different_ctx_size_spawns_a_fresh_process(monkeypatch):
     assert len(spawned) == 2
 
 
+def test_load_same_model_different_gpu_layers_spawns_a_fresh_process(monkeypatch):
+    """The no-op skip must key on gpu_layers too, not just model_id/ctx_size
+    -- otherwise switching a resident model between CPU-only and GPU
+    offload (e.g. after a VRAM re-check) would wrongly be treated as a
+    no-op and never actually apply -ngl."""
+    spawned = _patch_runtime(monkeypatch)
+    runtime = LlamaCppRuntime("fake-llama-server", {"small": "/models/small.gguf"})
+
+    runtime.load("small", ctx_size=4096, gpu_layers=0)
+    runtime.load("small", ctx_size=4096, gpu_layers=99)
+
+    assert len(spawned) == 2
+
+
+def test_load_passes_ngl_flag_only_when_gpu_layers_is_nonzero(monkeypatch):
+    captured_args = []
+    _patch_runtime(monkeypatch)
+
+    def fake_popen(args, **kwargs):
+        captured_args.append(args)
+        return FakeProcess()
+
+    monkeypatch.setattr("dwarv.runtime.llamacpp.subprocess.Popen", fake_popen)
+    runtime = LlamaCppRuntime("fake-llama-server", {"small": "/models/small.gguf"})
+
+    runtime.load("small", ctx_size=4096)
+    assert "-ngl" not in captured_args[0]
+
+    runtime.unload()
+    runtime.load("small", ctx_size=4096, gpu_layers=99)
+    assert captured_args[1][captured_args[1].index("-ngl") + 1] == "99"
+
+
 def test_load_reloads_if_the_resident_process_already_exited(monkeypatch):
     """Guards against the no-op skip hiding a real crash: if the process
     died between calls, a same-model/ctx load() must still relaunch it

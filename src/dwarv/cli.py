@@ -28,21 +28,41 @@ app = typer.Typer(name="dwarv", help="A local, conversational coding assistant."
 console = Console()
 
 
-def _gpu_summary() -> str:
+def _detect_nvidia_vram_mb() -> tuple[str, float] | None:
+    """Returns (gpu_name, vram_mb) for the first NVIDIA GPU reported by
+    nvidia-smi, or None if it's absent or reports nothing. NVIDIA-only for
+    now -- real gap, not hidden: Vulkan itself (see
+    configs/models.yaml's vulkan_assets) works on AMD/Intel GPUs too, but
+    this project has no vendor-agnostic way to query their VRAM yet. See
+    DWARV_PLAN.md section 11.3."""
     nvidia_smi = shutil.which("nvidia-smi")
     if not nvidia_smi:
-        return "none detected"
+        return None
     try:
         out = subprocess.run(
-            [nvidia_smi, "--query-gpu=name,memory.total", "--format=csv,noheader"],
+            [nvidia_smi, "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
             capture_output=True,
             text=True,
             timeout=5,
         )
-        line = out.stdout.strip().splitlines()
-        return line[0] if line else "nvidia-smi present, no GPU reported"
-    except Exception as exc:
-        return f"nvidia-smi present but failed: {exc}"
+        lines = out.stdout.strip().splitlines()
+        if not lines:
+            return None
+        name, _, mib = lines[0].rpartition(",")
+        return name.strip(), float(mib.strip())
+    except Exception:
+        return None
+
+
+def _gpu_summary() -> str:
+    nvidia_smi = shutil.which("nvidia-smi")
+    if not nvidia_smi:
+        return "none detected"
+    detected = _detect_nvidia_vram_mb()
+    if detected is None:
+        return "nvidia-smi present, no GPU reported"
+    name, vram_mb = detected
+    return f"{name}, {vram_mb:.0f} MiB"
 
 
 def _llama_server_version() -> str:
@@ -73,6 +93,22 @@ def _llama_server_exe_name(config: dict) -> str | None:
     assets = config.get("llama_cpp", {}).get("assets", {})
     entry = assets.get(_llama_server_asset_key())
     return entry[2] if entry else None
+
+
+def _vulkan_asset_entry(config: dict) -> list | None:
+    assets = config.get("llama_cpp", {}).get("vulkan_assets", {})
+    return assets.get(_llama_server_asset_key())
+
+
+def _vulkan_llama_server_path() -> Path | None:
+    """Path to the GPU-offload-capable llama-server build, if a
+    vulkan_assets entry exists for this platform (see configs/models.yaml)
+    -- None on platforms with no such entry (e.g. ARM64). Doesn't check
+    whether the file was actually downloaded; callers check .exists()."""
+    entry = _vulkan_asset_entry(load_models_config())
+    if entry is None:
+        return None
+    return _cache_dir() / "llama.cpp-vulkan" / entry[2]
 
 
 def _llama_server_path() -> Path:
@@ -149,9 +185,30 @@ def chat() -> None:
     from dwarv.agent.session import run_repl
     from dwarv.runtime.base import RuntimeCrashed
 
+    # DWARV_PLAN.md section 11.3: use the GPU-offload binary only when a
+    # real GPU was detected AND that binary was actually downloaded (never
+    # attempted on a machine with no detected GPU at all -- see
+    # setup_offline()). vram_mb is passed through only in that case, so
+    # ChatSession's per-model gpu_layers decision defaults to CPU-only
+    # (0) everywhere else, identical to today's behavior.
+    gpu = _detect_nvidia_vram_mb()
+    vulkan_path = _vulkan_llama_server_path()
+    use_vulkan = gpu is not None and vulkan_path is not None and vulkan_path.exists()
+    server_path = vulkan_path if use_vulkan else llama_server
+    vram_mb = gpu[1] if use_vulkan else None
+
     try:
-        run_repl(str(llama_server), str(cache_dir))
+        run_repl(str(server_path), str(cache_dir), vram_mb=vram_mb)
     except RuntimeCrashed as exc:
+        if use_vulkan:
+            console.print(
+                f"[yellow]GPU-offload llama-server crashed ({exc}) -- retrying CPU-only.[/yellow]"
+            )
+            try:
+                run_repl(str(llama_server), str(cache_dir))
+                return
+            except RuntimeCrashed as exc2:
+                exc = exc2
         console.print(f"[red]llama-server crashed: {exc}[/red]")
         raise typer.Exit(code=1) from exc
 
@@ -211,6 +268,45 @@ def setup_offline() -> None:
         if not exe_path.exists():
             console.print(f"[red]Extraction finished but {exe_path} is still missing.[/red]")
             raise typer.Exit(code=1)
+
+    # DWARV_PLAN.md section 11.3: GPU offload, additive only -- the
+    # CPU-only binary above is always downloaded regardless, so a machine
+    # with no detected GPU (or a GPU with no vulkan_assets entry for this
+    # platform) is completely unaffected. Only reached when nvidia-smi
+    # actually reports a GPU, so this never attempts the Vulkan binary on
+    # a machine where no GPU was found at all -- real speedup, live-
+    # measured (not guessed) on an RTX 3050: 5.5x-9.7x faster token
+    # generation across the 3 bundled models. See docs/DECISIONS.md.
+    gpu = _detect_nvidia_vram_mb()
+    vulkan_entry = _vulkan_asset_entry(config)
+    if gpu is not None and vulkan_entry is not None:
+        gpu_name, vram_mb = gpu
+        vulkan_asset_name, vulkan_archive_type, vulkan_exe_name = vulkan_entry
+        vulkan_dir = cache_dir / "llama.cpp-vulkan"
+        vulkan_exe_path = vulkan_dir / vulkan_exe_name
+        if vulkan_exe_path.exists():
+            console.print(
+                f"GPU offload binary already present at {vulkan_exe_path}, skipping download."
+            )
+        else:
+            console.print(f"Detected GPU: {gpu_name} ({vram_mb:.0f} MiB) -- enabling GPU offload.")
+            url = f"{llama_cpp_cfg['release_url_base']}/{vulkan_asset_name}"
+            archive_path = cache_dir / vulkan_asset_name
+            console.print(f"Downloading GPU-offload llama-server from {url}")
+            _download(url, archive_path, "llama-server (vulkan)")
+            console.print(f"Extracting to {vulkan_dir}")
+            _extract_archive(archive_path, vulkan_dir, vulkan_archive_type)
+            archive_path.unlink(missing_ok=True)
+            if not vulkan_exe_path.exists():
+                console.print(
+                    f"[yellow]GPU-offload extraction finished but {vulkan_exe_path} is still "
+                    "missing -- continuing CPU-only.[/yellow]"
+                )
+    elif gpu is not None:
+        console.print(
+            f"Detected GPU: {gpu[0]} -- no GPU-offload build configured for {asset_key} yet, "
+            "continuing CPU-only."
+        )
 
     # DWARV_PLAN.md section 11.6: hardware-aware per-tier quant choice.
     # Each tier downloads its default quant unless that doesn't fit this

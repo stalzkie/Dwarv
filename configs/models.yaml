@@ -21,6 +21,24 @@ llama_cpp:
     "Linux,x86_64": [llama-b11516-bin-ubuntu-x64.tar.gz, tar.gz, llama-server]
     "Darwin,x86_64": [llama-b11516-bin-macos-x64.tar.gz, tar.gz, llama-server]
     "Darwin,arm64": [llama-b11516-bin-macos-arm64.tar.gz, tar.gz, llama-server]
+  # DWARV_PLAN.md section 11.3: optional GPU-offload build, downloaded in
+  # addition to (never instead of) the CPU-only asset above, and only used
+  # when a GPU is actually detected (see dwarv.cli._detect_nvidia_vram_mb)
+  # -- machines without a detected GPU are completely unaffected. Vulkan,
+  # not CUDA: the CUDA asset for this same release needs an extra ~650MB
+  # (a separate win-cuda build plus its own cudart redistributable) and is
+  # NVIDIA-only; the Vulkan asset is 33MB with no separate runtime and
+  # works across NVIDIA/AMD/Intel GPUs (sizes confirmed via the GitHub
+  # releases API 2026-10-10, not guessed). Live-verified on this machine's
+  # real RTX 3050 (llama-bench, -ngl 99 vs -ngl 0): 8.4x/9.7x/5.5x faster
+  # token generation for small/medium/large respectively -- see
+  # docs/DECISIONS.md. Windows,AMD64 is live-verified; Linux,x86_64's
+  # asset exists in the same release but was not live-tested this
+  # session (no Linux GPU machine available) -- included because the
+  # same release build process produced it, not because it was run.
+  vulkan_assets:
+    "Windows,AMD64": [llama-b11516-bin-win-vulkan-x64.zip, zip, llama-server.exe]
+    "Linux,x86_64": [llama-b11516-bin-ubuntu-vulkan-x64.tar.gz, tar.gz, llama-server]
 
 models:
   - id: small

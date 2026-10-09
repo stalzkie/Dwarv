@@ -15,6 +15,7 @@ from dwarv.models.suite import (
     DEFAULT_CTX_SIZE,
     MODEL_ORDER,
     Hardware,
+    choose_gpu_layers,
     choose_model,
     load_models_config,
     load_quant_choices,
@@ -43,7 +44,7 @@ DEFAULT_MAX_TOKENS = 1024
 
 
 class RuntimeLike(Protocol):
-    def load(self, model_id: str, ctx_size: int) -> float: ...
+    def load(self, model_id: str, ctx_size: int, gpu_layers: int = 0) -> float: ...
     def unload(self) -> None: ...
     def generate(self, messages: list[dict[str, str]], params: GenParams): ...
     def pid(self) -> int | None: ...
@@ -66,6 +67,7 @@ class ChatSession:
         rss_fn: Callable[[], float] | None = None,
         sys_available_fn: Callable[[], float] | None = None,
         log_dir: str | Path | None = None,
+        vram_mb: float | None = None,
     ):
         if log_dir is not None:
             self.logger = EventLogger(log_dir)
@@ -80,13 +82,19 @@ class ChatSession:
         # makes both path resolution and RSS-based tier selection reflect
         # what's really on disk.
         self.quant_choices = load_quant_choices(cache_dir) if cache_dir is not None else {}
+        # DWARV_PLAN.md section 11.3: real file size per model_id, used by
+        # _gpu_layers_for() to decide GPU offload -- None when a fake
+        # runtime is injected (tests), which also means vram_mb has no
+        # effect there, matching today's CPU-only behavior exactly.
+        self.model_paths: dict[str, str] | None = None
+        self._vram_mb = vram_mb
         if runtime is not None:
             self.runtime = runtime
         else:
-            model_paths = _resolve_model_paths(
+            self.model_paths = _resolve_model_paths(
                 self.models_config, cache_dir, quant_choices=self.quant_choices
             )
-            self.runtime = LlamaCppRuntime(llama_server_path, model_paths)
+            self.runtime = LlamaCppRuntime(llama_server_path, self.model_paths)
         self._monitor_sample_count = 0
         self.monitor = ResourceMonitor(pid_fn=self.runtime.pid, on_sample=self._on_monitor_sample)
         # Overridable so tests can simulate resource pressure deterministically
@@ -127,7 +135,7 @@ class ChatSession:
             ctx_size=DEFAULT_CTX_SIZE,
             quant_choices=self.quant_choices,
         )
-        self.runtime.load(choice.model_id, ctx_size=DEFAULT_CTX_SIZE)
+        self._load_runtime(choice.model_id, ctx_size=DEFAULT_CTX_SIZE)
         self.current_model_id = choice.model_id
         self.current_ctx_size = DEFAULT_CTX_SIZE
         self.logger.log(
@@ -311,7 +319,7 @@ class ChatSession:
                 if decision.action in RELOAD_ACTIONS:
                     reloads_used += 1
                     target_model_id, target_ctx = self._resolve_reload_target(decision.action)
-                    self.runtime.load(target_model_id, ctx_size=target_ctx)
+                    self._load_runtime(target_model_id, ctx_size=target_ctx)
                     self.current_model_id = target_model_id
                     self.current_ctx_size = target_ctx
                 continue  # re-check resources before generating
@@ -395,7 +403,7 @@ class ChatSession:
             if decision.action in RELOAD_ACTIONS:
                 reloads_used += 1
                 target_model_id, target_ctx = self._resolve_reload_target(decision.action)
-                self.runtime.load(target_model_id, ctx_size=target_ctx)
+                self._load_runtime(target_model_id, ctx_size=target_ctx)
                 self.current_model_id = target_model_id
                 self.current_ctx_size = target_ctx
             elif decision.action == Action.RETRY_LOWER_TEMP:
@@ -441,6 +449,34 @@ class ChatSession:
     def _apply_for_real(self, patches: list[Patch]) -> None:
         for p in patches:
             apply_patch(p, self.repo_ctx.root)
+
+    def _gpu_layers_for(self, model_id: str) -> int:
+        """DWARV_PLAN.md section 11.3: 0 (CPU-only, llama.cpp's own
+        default) unless both a real GPU was detected (vram_mb set by
+        run_repl) and the real on-disk file for model_id fits in it with
+        margin -- see models.suite.choose_gpu_layers. Reads the file's
+        real size, not the configured expected size, so a quant
+        substitution (section 11.6) is reflected accurately."""
+        if self._vram_mb is None or self.model_paths is None:
+            return 0
+        path = self.model_paths.get(model_id)
+        if path is None:
+            return 0
+        try:
+            file_size_bytes = Path(path).stat().st_size
+        except OSError:
+            return 0
+        return choose_gpu_layers(file_size_bytes, self._vram_mb)
+
+    def _load_runtime(self, model_id: str, ctx_size: int) -> None:
+        """Thin wrapper around runtime.load() that only passes gpu_layers
+        when nonzero, so a fake runtime in tests (whose load() never
+        needed a gpu_layers param) keeps working unchanged."""
+        gpu_layers = self._gpu_layers_for(model_id)
+        if gpu_layers:
+            self.runtime.load(model_id, ctx_size=ctx_size, gpu_layers=gpu_layers)
+        else:
+            self.runtime.load(model_id, ctx_size=ctx_size)
 
     def _resolve_reload_target(self, action: Action) -> tuple[str, int]:
         idx = MODEL_ORDER.index(self.current_model_id)
@@ -512,7 +548,9 @@ _HELP_TEXT = (
 )
 
 
-def run_repl(llama_server_path: str, cache_dir: str, repo_dir: str = ".") -> None:
+def run_repl(
+    llama_server_path: str, cache_dir: str, repo_dir: str = ".", vram_mb: float | None = None
+) -> None:
     from rich.console import Console
 
     from dwarv.agent.render import style_narration, style_reply
@@ -530,6 +568,7 @@ def run_repl(llama_server_path: str, cache_dir: str, repo_dir: str = ".") -> Non
         cache_dir,
         repo_dir,
         print_fn=lambda text: console.print(style_narration(text)),
+        vram_mb=vram_mb,
     )
     session.start()
     try:
