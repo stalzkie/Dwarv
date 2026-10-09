@@ -1,6 +1,5 @@
+from collections.abc import Callable
 from typing import Protocol
-
-import psutil
 
 from dwarv.agent.prompts import extract_patch, repair_prompt, system_prompt
 from dwarv.controller.actions import Action
@@ -16,8 +15,9 @@ from dwarv.models.suite import resolve_model_paths as _resolve_model_paths
 from dwarv.repo.context import detect_repo_context, snapshot_repo_files
 from dwarv.repo.patch import Patch, apply_patch, make_patch
 from dwarv.repo.worktree import disposable_worktree
-from dwarv.resources.budget import BudgetManager
+from dwarv.resources.budget import BudgetManager, BudgetStatus
 from dwarv.resources.monitor import ResourceMonitor
+from dwarv.resources.squeeze import SqueezeEvent, SqueezeScheduler
 from dwarv.runtime.base import GenParams
 from dwarv.runtime.llamacpp import LlamaCppRuntime
 from dwarv.types import Decision
@@ -53,6 +53,8 @@ class ChatSession:
         print_fn=print,
         runtime: RuntimeLike | None = None,
         models_config: dict | None = None,
+        rss_fn: Callable[[], float] | None = None,
+        sys_available_fn: Callable[[], float] | None = None,
     ):
         self.repo_ctx = detect_repo_context(repo_dir)
         self.models_config = models_config if models_config is not None else load_models_config()
@@ -62,17 +64,27 @@ class ChatSession:
             model_paths = _resolve_model_paths(self.models_config, cache_dir)
             self.runtime = LlamaCppRuntime(llama_server_path, model_paths)
         self.monitor = ResourceMonitor(pid_fn=self.runtime.pid)
+        # Overridable so tests can simulate resource pressure deterministically
+        # (a fake runtime has no real process whose RSS could realistically be
+        # squeezed against GB-scale bundled-model numbers); real usage reads
+        # the live monitor.
+        self._rss_fn = rss_fn or (lambda: self.monitor.sample_once().server_rss_mb)
+        self._sys_available_fn = sys_available_fn or (
+            lambda: self.monitor.sample_once().sys_available_mb
+        )
         self.tier, self.tier_detail = sandbox_tier()
         self.history: list[dict[str, str]] = []
         self.current_model_id: str | None = None
         self.current_ctx_size: int = DEFAULT_CTX_SIZE
         self.last_decision: Decision | None = None
         self.print_fn = print_fn
+        self.squeeze = SqueezeScheduler()
+        self._turns_completed = 0
         self._started = False
 
     def start(self) -> None:
         self.monitor.start()
-        hw = Hardware(sys_available_mb=psutil.virtual_memory().available / (1024**2))
+        hw = Hardware(sys_available_mb=self._sys_available_fn())
         choice = choose_model(
             hw, models=self.models_config.get("models", []), ctx_size=DEFAULT_CTX_SIZE
         )
@@ -98,6 +110,20 @@ class ChatSession:
         self.monitor.stop()
         self.runtime.unload()
 
+    def schedule_squeeze(
+        self,
+        new_ram_limit_mb: float,
+        reason: str = "memory squeeze",
+        after_turns: int | None = None,
+        after_s: float | None = None,
+    ) -> SqueezeEvent:
+        """Step 8: pre-register a deterministic RAM-budget cut, for the live
+        demo ("watch what happens when I squeeze available RAM mid-
+        conversation") or the Step 9 internal eval's ablations."""
+        return self.squeeze.schedule(
+            new_ram_limit_mb, reason=reason, after_turns=after_turns, after_s=after_s
+        )
+
     def status_text(self) -> str:
         sample = self.monitor.sample_once()
         decision_text = (
@@ -121,12 +147,15 @@ class ChatSession:
         return self._turn()
 
     def _turn(self) -> str:
+        turn_index = self._turns_completed
+        self._turns_completed += 1
+
         budget = BudgetManager(
-            ram_limit_mb=psutil.virtual_memory().available / (1024**2),
+            ram_limit_mb=self._sys_available_fn(),
             time_limit_s=DEFAULT_TURN_TIME_LIMIT_S,
             max_attempts=DEFAULT_MAX_ATTEMPTS,
-            rss_fn=lambda: self.monitor.sample_once().server_rss_mb,
-            sys_available_fn=lambda: self.monitor.sample_once().sys_available_mb,
+            rss_fn=self._rss_fn,
+            sys_available_fn=self._sys_available_fn,
         )
 
         temperature = 0.2
@@ -135,6 +164,41 @@ class ChatSession:
         reloads_used = 0
 
         while True:
+            squeeze_event = self.squeeze.maybe_fire(turn_index)
+            if squeeze_event is not None:
+                budget.set_ram_limit(squeeze_event.new_ram_limit_mb, squeeze_event.reason)
+                self.print_fn(
+                    f"(demo) squeeze: {squeeze_event.reason} -- RAM budget cut to "
+                    f"{squeeze_event.new_ram_limit_mb:.0f}MB"
+                )
+
+            if budget.check() != BudgetStatus.OK:
+                # Proactive check, run before generating -- catches a squeeze
+                # (or genuine resource pressure) even on a turn that would
+                # otherwise succeed on the first try. Rule 2 (budget shrank)
+                # only ever returns STOP_SAFELY/SHRINK_CONTEXT/
+                # SWITCH_SMALLER_MODEL here, never a retry/escalate action.
+                decision = decide(
+                    self._policy_state(budget, last_failure_class, repeated_same_failure),
+                    reloads_used=reloads_used,
+                    max_reloads_per_turn=DEFAULT_MAX_RELOADS_PER_TURN,
+                )
+                self.last_decision = decision
+                self.print_fn(decision.narration)
+
+                if decision.action == Action.STOP_SAFELY:
+                    reply = f"NOT continuing -- {decision.narration}"
+                    self.history.append({"role": "assistant", "content": f"[{reply}]"})
+                    return reply
+
+                if decision.action in RELOAD_ACTIONS:
+                    reloads_used += 1
+                    target_model_id, target_ctx = self._resolve_reload_target(decision.action)
+                    self.runtime.load(target_model_id, ctx_size=target_ctx)
+                    self.current_model_id = target_model_id
+                    self.current_ctx_size = target_ctx
+                continue  # re-check resources before generating
+
             budget.record_attempt()
             result = self.runtime.generate(
                 self.history, GenParams(temperature=temperature, max_tokens=DEFAULT_MAX_TOKENS)

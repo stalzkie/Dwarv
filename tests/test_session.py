@@ -166,3 +166,78 @@ def test_resolve_reload_target_smaller_and_larger(tmp_path):
 
     assert session._resolve_reload_target(Action.SWITCH_SMALLER_MODEL) == ("small", 4096)
     assert session._resolve_reload_target(Action.SWITCH_LARGER_MODEL) == ("large", 4096)
+
+
+def _rss_tracking_fn(runtime: FakeRuntime):
+    """Returns the bundled measured RSS for whatever model `runtime`
+    currently has loaded -- lets a squeeze test simulate a real reload
+    actually relieving memory pressure, without a real OS process."""
+    rss_by_model = {
+        m["id"]: (m.get("measured_rss_mb") or {}).get(4096, 0.0)
+        for m in FAKE_MODELS_CONFIG["models"]
+    }
+
+    def rss_fn() -> float:
+        model_id, _ctx = runtime.current()
+        return rss_by_model.get(model_id, 0.0)
+
+    return rss_fn
+
+
+def test_squeeze_triggers_narrated_step_down_and_conversation_continues(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    runtime = FakeRuntime(["The function looks fine to me."])
+
+    session = ChatSession(
+        runtime=runtime,
+        models_config=FAKE_MODELS_CONFIG,
+        repo_dir=str(repo),
+        rss_fn=_rss_tracking_fn(runtime),
+        sys_available_fn=lambda: 15000.0,  # comfortably fits "large" at session start
+    )
+    session.repo_ctx.test_command = [sys.executable, "-m", "pytest"]
+    session.start()
+    assert session.current_model_id == "large"
+
+    # Cut the budget to below large's RSS (9965MB) but above medium's
+    # (7458.5MB) -- forces exactly one step-down, not a cascade to "small".
+    session.schedule_squeeze(new_ram_limit_mb=8500.0, reason="demo squeeze", after_turns=0)
+
+    reply = session.handle_message("what does add() do?")
+
+    assert reply == "The function looks fine to me."  # conversation kept working
+    assert session.current_model_id == "medium"  # actually stepped down
+    assert session.last_decision is not None
+    assert session.last_decision.action == Action.SWITCH_SMALLER_MODEL
+
+
+def test_squeeze_with_no_smaller_model_stops_safely_without_crashing(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    runtime = FakeRuntime(["second turn works fine"])
+
+    session = ChatSession(
+        runtime=runtime,
+        models_config=FAKE_MODELS_CONFIG,
+        repo_dir=str(repo),
+        rss_fn=_rss_tracking_fn(runtime),
+        sys_available_fn=lambda: 3000.0,  # only fits "small" at session start
+    )
+    session.repo_ctx.test_command = [sys.executable, "-m", "pytest"]
+    session.start()
+    assert session.current_model_id == "small"
+
+    session.schedule_squeeze(new_ram_limit_mb=10.0, reason="extreme squeeze", after_turns=0)
+
+    reply = session.handle_message("what does add() do?")
+
+    assert "not continuing" in reply.lower()
+    assert session.last_decision.action == Action.STOP_SAFELY
+
+    # the session itself isn't left broken -- the next turn (squeeze already
+    # fired once, won't re-fire) works normally again
+    reply2 = session.handle_message("ok, try again")
+    assert reply2 == "second turn works fine"
