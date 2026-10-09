@@ -1,0 +1,9 @@
+system,profile,n,pass_rate,pass_rate_ci_lo,pass_rate_ci_hi,mean_peak_rss_mb,max_peak_rss_mb,budget_violations,mean_wall_s,mean_attempts
+dwarv,squeeze_mid,20,0.6,0.4,0.8,1751.4,1770.7,0,13.4,1.8
+dwarv,static_loose,32,0.5625,0.4062,0.75,1749.8,1770.9,0,11.54,1.88
+fixed,squeeze_mid,20,0.5,0.3,0.7,1751.2,1770.3,0,6.9,1.0
+fixed,static_loose,32,0.5,0.3125,0.6562,1751.9,1770.6,0,5.88,1.0
+retry,squeeze_mid,20,0.55,0.35,0.75,1752.5,1770.5,0,15.8,1.9
+retry,static_loose,32,0.5312,0.375,0.6875,1751.8,1770.6,0,13.4,1.94
+retry_escalate,squeeze_mid,20,0.4,0.2,0.6,1751.6,1770.8,0,15.99,2.2
+retry_escalate,static_loose,32,0.5625,0.375,0.7188,1752.0,1771.0,0,11.11,1.88

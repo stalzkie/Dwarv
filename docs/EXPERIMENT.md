@@ -47,6 +47,29 @@ Implemented in `eval/analyze.py`: `mcnemar_test()`, `wilcoxon_signed_rank()`, `w
 
 `dwarv` vs `fixed`, `static_loose`: 0 discordant pairs (both systems passed the identical 4 of 5 tasks and failed the identical 1) -- McNemar p=1.0. `wall_s` p=0.625, `peak_rss_mb` p=0.4375 (Wilcoxon). All non-significant, which is the honest, correct conclusion at this n -- not "no difference," but **not enough data to tell**, now backed by the statistically appropriate test rather than eyeballing overlapping CIs. See `eval_results/dryrun2/{significance.csv,significance.md,with_vs_without.png}`.
 
+### Scoped real run (`realcompare1`, 2026-10-10) -- 20 tasks, squeeze_mid included, not the full frozen protocol
+
+Hackathon time-scoped: all 20 tasks in the frozen subset (not the full 40), both `static_loose` and `squeeze_mid` (critically including `squeeze_mid`, unlike the dry run -- this is the condition the hypothesis is actually about), but only 1 seed per task for this profile pair rather than the full protocol's 3+. The run also crashed partway through on a real bug (a HumanEval+ ground-truth integer exceeding Python's int-to-str conversion limit inside the generated check script -- fixed in `verify/evalplus_adapter.py`, see git history) and was resumed rather than restarted, so `static_loose` carries a mix of seed counts per task (8 tasks x1 seed + 12 tasks x2 seeds, from before the crash, = 32 raw rows over 20 tasks) while `squeeze_mid` is a clean 1 seed x 20 tasks = 20 raw rows. The paired analysis majority-votes across whatever seeds exist per task, so this is handled correctly, but it means `squeeze_mid`'s per-task bit has no majority-vote smoothing the way some of `static_loose`'s does.
+
+| system | profile | n | pass_rate | 95% CI | mean_peak_rss_mb | budget_violations | mean_wall_s | mean_attempts |
+|---|---|---|---|---|---|---|---|---|
+| dwarv | squeeze_mid | 20 | 0.60 | [0.40, 0.80] | 1751.4 | 0 | 13.40 | 1.80 |
+| fixed | squeeze_mid | 20 | 0.50 | [0.30, 0.70] | 1751.2 | 0 | 6.90 | 1.00 |
+| retry | squeeze_mid | 20 | 0.55 | [0.35, 0.75] | 1752.5 | 0 | 15.80 | 1.90 |
+| retry_escalate | squeeze_mid | 20 | 0.40 | [0.20, 0.60] | 1751.6 | 0 | 15.99 | 2.20 |
+| dwarv | static_loose | 32 | 0.5625 | [0.41, 0.75] | 1749.8 | 0 | 11.54 | 1.88 |
+| fixed | static_loose | 32 | 0.50 | [0.31, 0.66] | 1751.9 | 0 | 5.88 | 1.00 |
+| retry | static_loose | 32 | 0.5312 | [0.38, 0.69] | 1751.8 | 0 | 13.40 | 1.94 |
+| retry_escalate | static_loose | 32 | 0.5625 | [0.38, 0.72] | 1752.0 | 0 | 11.11 | 1.88 |
+
+Full tables/charts/raw data: `eval_results/realcompare1/{results.jsonl,summary.csv,summary.md,significance.csv,significance.md,pass_rate.png,rss_vs_pass.png,with_vs_without.png,diff_dwarv_vs_retry_escalate.md}`.
+
+**dwarv vs fixed** (the significance report's default "with vs without Dwarv" pair, `significance.md`): McNemar on pass/fail is non-significant in both profiles (p=0.625 squeeze_mid, p=1.0 static_loose) -- not enough data to detect a correctness difference via the strict paired test, even though the raw pass rates favor `dwarv` in both. Wilcoxon on `wall_s` **is** significant in both profiles (p=0.0073 squeeze_mid, p=0.0007 static_loose): `dwarv` is reliably slower (13.4s vs 6.9s squeeze_mid; 11.5s vs 5.9s static_loose), the expected, honest cost of a policy that retries/escalates (mean_attempts ~1.8-1.9 vs fixed's fixed 1.0). Peak RSS is statistically indistinguishable (p=0.11 squeeze_mid, p=0.45 static_loose) -- expected, since RSS is dominated by which model is loaded, not by the policy logic around it.
+
+**dwarv vs retry_escalate** is the comparison the decision criteria above actually turn on, since both systems retry and escalate on failure and only `dwarv`'s escalation is RAM-aware -- this isolates resource-awareness itself, not just "retrying helps." Computed directly (not in the default significance report, which only covers `dwarv` vs `fixed`): under `squeeze_mid`, `dwarv` won every one of the 4 tasks where the two systems disagreed and lost none (McNemar: both_pass=8, both_fail=8, dwarv_only=4, retry_escalate_only=0, p=0.125) -- directionally exactly what the hypothesis predicts, and it's the single widest pass-rate gap in the whole run (0.60 vs 0.40). Under `static_loose`, where no advantage is predicted, the two systems are close and split 2-1 in `dwarv`'s favor (p=1.0). A clean 4-0 sweep is a real, visible signal, but at n=20 it isn't enough to clear p<0.05 -- McNemar's exact test needs more discordant pairs than this to reach significance even with a perfect split.
+
+`budget_violations` is 0 for every system and profile in this run, including the baselines under `squeeze_mid` -- the pressure this profile induces didn't trigger a hard OOM/budget breach for anyone at this n. The differences observed are in verified-pass-rate quality under pressure, not in raw violation counts, which matters for how to read "resource-awareness helped": it shows up as better answers under pressure, not as fewer crashes.
+
 ### A real case where Dwarv did not help (honesty check, Step 10)
 
 Per `DWARV_PLAN.md` Step 10's "also show one case where Dwarv does not help" --
@@ -65,8 +88,8 @@ instead of re-running it live, since it's already real, captured data.
 
 ### Full frozen protocol
 
-**Not yet run.** Would need all 40 tasks in `eval_tasks/subset_v1.json`, all 3 profiles (including `squeeze_mid`, which is where the hypothesis is actually tested), 3+ seeds each, across 4 systems -- 40 x 3 x 3 x 4 = 1,440 task-runs, each potentially involving multiple model loads (load times alone range 6s-86s per the real benchmark in `benchmarks/`). This is real CPU-bound LLM inference time, correctly scoped as 48h-version follow-up work per `DWARV_PLAN.md` section 8, not something to run inside a single development session.
+**Not yet run.** Would need all 40 tasks in `eval_tasks/subset_v1.json`, all 3 profiles, 3+ seeds each, across 4 systems -- 40 x 3 x 3 x 4 = 1,440 task-runs, each potentially involving multiple model loads (load times alone range 6s-86s per the real benchmark in `benchmarks/`). `realcompare1` above is a real, hackathon-scoped fraction of this (20 tasks, 2 of 3 profiles, 1 seed) chosen specifically to include `squeeze_mid` rather than expand `static_loose`/`static_tight` further, since `squeeze_mid` is where the hypothesis is actually tested; the full protocol remains real follow-up work.
 
 ## Interpretation
 
-Not yet supported or refuted -- the full protocol hasn't run. The dry run's only claim is that the harness itself works end to end on real hardware, real models, and real verification, which is what Step 9's acceptance check asks for.
+**Suggestive, not proven.** `realcompare1` is the first real run to include `squeeze_mid`, and the comparison that actually tests the hypothesis (`dwarv` vs `retry_escalate`, isolating resource-awareness from "retrying helps at all") points the predicted direction with the largest pass-rate gap of any pairwise comparison in the run (0.60 vs 0.40, a clean 4-0 sweep on disagreements) -- but n=20 with 1 seed is underpowered to call that significant (McNemar p=0.125), consistent with the earlier power calculation (~100+ tasks needed to reliably detect a medium effect). `dwarv` also measurably costs more wall-clock time than a no-policy baseline (p<0.01), which is an honest, expected tradeoff of retrying/escalating rather than a flaw. The full frozen protocol (40 tasks x 3+ seeds x all 3 profiles) is still needed to actually claim support.

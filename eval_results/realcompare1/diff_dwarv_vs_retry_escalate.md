@@ -1,0 +1,9 @@
+## squeeze_mid: dwarv vs retry_escalate
+- HumanEval/1: winner = dwarv
+- HumanEval/104: winner = dwarv
+- HumanEval/109: winner = dwarv
+- HumanEval/149: winner = dwarv
+## static_loose: dwarv vs retry_escalate
+- HumanEval/118: winner = dwarv
+- HumanEval/133: winner = retry_escalate
+- HumanEval/149: winner = dwarv

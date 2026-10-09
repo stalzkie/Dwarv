@@ -54,7 +54,7 @@ We also built and honestly evaluated our own activation-aware quantization metho
 
 A developer-only harness (`dwarv eval`, never the end-user surface) compares Dwarv's real policy against three baselines — a fixed model, verification-guided retry, and retry-with-escalation-but-no-resource-awareness — on real HumanEval+ tasks, verified through Dwarv's own cross-platform sandbox. Results use paired statistics appropriate for identical-task comparisons (McNemar's test for pass/fail, Wilcoxon signed-rank for continuous metrics), not just independent confidence intervals.
 
-**Honestly, the hypothesis is not yet proven.** The only run so far is a 5-task dry run that validated the harness mechanics (real inference, real sandboxing, real bootstrap CIs, real resumable output) — not a statistically powered test, and it never exercised the memory-constrained condition where resource-awareness would be expected to matter. See `docs/EXPERIMENT.md` for the frozen protocol, the decision criteria written in advance, and exactly what's been measured versus what hasn't.
+**Honestly, the hypothesis is suggestive, not proven.** A real, hackathon-scoped run (`realcompare1`: 20 tasks, both `static_loose` and the memory-constrained `squeeze_mid`, 4 systems) is in: the comparison that actually isolates resource-awareness — Dwarv vs. a retry-and-escalate baseline that is *not* RAM-aware — shows Dwarv winning every task where the two disagreed under memory pressure (4 wins, 0 losses; pass rate 0.60 vs. 0.40, the widest gap in the run), the right direction with the largest effect size observed. But at n=20 with 1 seed, that's not statistically significant (McNemar p=0.125) — real signal, not yet proof. Dwarv also reliably costs more wall-clock time than a no-policy baseline (p<0.01), the honest price of retrying instead of just failing. See `docs/EXPERIMENT.md` for the full numbers, the frozen protocol, the decision criteria written in advance, and exactly what's been measured versus what hasn't.
 
 ## Status
 
@@ -62,7 +62,7 @@ Functional end-to-end through hardware-aware model+quant selection, sandboxed ve
 
 ## Limitations
 
-- The resource-awareness hypothesis is unproven at the scale needed to actually test it (see [Internal evaluation](#internal-evaluation)).
+- The resource-awareness hypothesis has real, directionally-supportive evidence but isn't statistically proven at the scale run so far (see [Internal evaluation](#internal-evaluation)).
 - The code graph is Python-only (stdlib `ast`), and call-graph edges are matched by name, not type-resolved — two unrelated functions sharing a name are treated as one node. Stated plainly in `repo/graph.py`'s own docstring, not hidden.
 - Windows' sandbox tier (no Docker, no `unshare`) is a polled memory watchdog, not a kernel-enforced limit — real and functional, but weaker than the Linux/macOS tiers.
 - Our own compression method is a research thread, not a production path — see above. The production path for shrinking a model's footprint is llama.cpp's own mature I-quant family.
