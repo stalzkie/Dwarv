@@ -69,9 +69,13 @@ def render(cols: int = DEFAULT_COLS, color: str = DEFAULT_COLOR) -> str:
             start = c
             while c < len(row) and row[c]:
                 c += 1
-            rects.append(f'<rect x="{start}" y="{r}" width="{c - start}" height="1" fill="{color}"/>')
+            rects.append(
+                f'<rect x="{start}" y="{r}" width="{c - start}" height="1" fill="{color}"/>'
+            )
 
-    lines = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {cols} {rows}" shape-rendering="crispEdges">']
+    lines = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {cols} {rows}" shape-rendering="crispEdges">'
+    ]
     lines.extend(rects)
     lines.append("</svg>")
     return "\n".join(lines) + "\n"
