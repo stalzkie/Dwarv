@@ -662,18 +662,28 @@ casing 32B.
 
 ### 11.3 Supporting levers (lower priority than 11.1, same phase)
 
-- **Opportunistic GPU offload** (`-ngl`): detect a discrete GPU with real
-  VRAM (NVIDIA via `nvidia-smi` first -- already partially wired for
-  `dwarv doctor`'s display-only `_gpu_summary()`; AMD/Intel detection is a
-  real, documented gap, not faked). No GPU found -> behaves exactly as
-  today, pure CPU. Effective capacity becomes `sys_available_mb +
-  vram_available_mb`, with `-ngl` computed from how many layers fit in
-  VRAM specifically. Confirmed real CUDA/Vulkan/ROCm/SYCL builds exist for
-  the pinned release tag (`b11516`), not just the CPU build Dwarv
-  downloads today.
-- **`setup-offline` downloads the matching llama.cpp build** (CUDA/Vulkan
-  vs CPU) based on what hardware detection finds, so a GPU-less machine
-  never wastes bandwidth on a build it can't use.
+- **Opportunistic GPU offload (`-ngl`) -- BUILT, live-verified, 2026-10-10.**
+  Measured before building anything (`llama-bench`, `-ngl 0` vs `-ngl 99`
+  on a real RTX 3050): **8.4x / 9.7x / 5.5x** faster token generation for
+  the small/medium/large bundled models respectively -- a real bottleneck
+  (CPU-only generation ran as slow as 2.2-4.6 tok/s for medium/large), not
+  a guess. Picked **Vulkan over CUDA** deliberately: CUDA needs ~650MB
+  extra (a separate build plus its own `cudart` redistributable) and is
+  NVIDIA-only; Vulkan is 33MB, no separate runtime, and works across
+  NVIDIA/AMD/Intel GPUs (`configs/models.yaml`'s `vulkan_assets`).
+  `models.suite.choose_gpu_layers()` decides `-ngl` from a real measured
+  VRAM-usage ratio (one live measurement: the 14B model used 5683MiB of
+  VRAM fully offloaded, a 1.114x-of-file-size ratio), binary (full offload
+  or none, not partial-layer tuning -- all three bundled models fit
+  entirely within 8GB with room to spare). GPU detection stays NVIDIA-only
+  via `nvidia-smi` (`dwarv.cli._detect_nvidia_vram_mb`) -- a real,
+  documented gap, not faked: AMD/Intel VRAM detection would need a
+  vendor-specific tool this project doesn't have yet. No GPU detected ->
+  behaves exactly as before this feature existed, pure CPU, zero risk to
+  that path. `setup-offline` downloads the Vulkan binary additively
+  (never replacing the CPU-only one) only when a GPU is actually detected;
+  `chat()` falls back live to the CPU binary if the GPU-offload binary
+  ever crashes on startup.
 - **Free wins regardless of GPU**: `--flash-attn` and `--cache-type-k/v`
   (KV-cache quantization) -- real llama.cpp flags, lower RAM at any tier,
   no accuracy cost for flash-attention and a small, well-understood one for
