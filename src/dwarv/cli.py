@@ -12,7 +12,15 @@ import psutil
 import typer
 from rich.console import Console
 
-from dwarv.models.suite import load_models_config, resolve_model_paths
+from dwarv.models.suite import (
+    DEFAULT_CTX_SIZE,
+    DEFAULT_SAFETY_MARGIN,
+    find_best_quant_for_tier,
+    find_quant_entry,
+    load_models_config,
+    resolve_model_paths,
+    save_quant_choices,
+)
 from dwarv.verify.sandbox import docker_available as _docker_available
 from dwarv.verify.sandbox import sandbox_tier as _sandbox_tier
 
@@ -186,16 +194,44 @@ def setup_offline() -> None:
             console.print(f"[red]Extraction finished but {exe_path} is still missing.[/red]")
             raise typer.Exit(code=1)
 
+    # DWARV_PLAN.md section 11.6: hardware-aware per-tier quant choice.
+    # Each tier downloads its default quant unless that doesn't fit this
+    # machine's real available RAM, in which case the highest-quality
+    # bartowski I-quant that does fit is downloaded instead -- so a
+    # low-spec machine never wastes bandwidth/disk on a file it can't
+    # actually load. budget_mb mirrors choose_model()'s own
+    # safety-margined calculation so "what setup-offline downloads" and
+    # "what choose_model() would pick" agree.
+    vm = psutil.virtual_memory()
+    sys_available_mb = vm.available / (1024 * 1024)
+    budget_mb = sys_available_mb * (1 - DEFAULT_SAFETY_MARGIN)
+
     models_dir = cache_dir / "models"
+    quant_choices: dict[str, str] = {}
     for entry in config.get("models", []):
-        dest = models_dir / entry["filename"]
-        expected_size = entry.get("file_size_bytes")
+        level, fits = find_best_quant_for_tier(entry, budget_mb, DEFAULT_CTX_SIZE)
+        if level is not None:
+            quant_choices[entry["id"]] = level
+            source = find_quant_entry(entry, level)
+            if not fits:
+                console.print(
+                    f"[yellow]{entry['id']}: even the most compressed quant ({level}) may not "
+                    "comfortably fit this machine -- downloading it anyway as the best available "
+                    "option.[/yellow]"
+                )
+        else:
+            source = entry
+        dest = models_dir / source["filename"]
+        expected_size = source.get("file_size_bytes")
         if dest.exists() and (expected_size is None or dest.stat().st_size == expected_size):
             console.print(f"{entry['id']}: already present at {dest}, skipping download.")
             continue
-        url = f"https://huggingface.co/{entry['hf_repo']}/resolve/main/{entry['filename']}"
-        console.print(f"Downloading {entry['id']} ({entry['quant']}) from {url}")
+        url = f"https://huggingface.co/{source['hf_repo']}/resolve/main/{source['filename']}"
+        label = f"{entry['id']} ({level or entry['quant']})"
+        console.print(f"Downloading {label} from {url}")
         _download(url, dest, entry["id"])
+
+    save_quant_choices(cache_dir, quant_choices)
 
     console.print(
         "[green]Setup complete.[/green] Set DWARV_CACHE_DIR to reuse this cache from another shell."

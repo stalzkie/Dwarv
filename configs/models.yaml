@@ -35,6 +35,34 @@ models:
       4096: 1727.3
     load_time_s:
       4096: 6.03
+    # DWARV_PLAN.md section 11.6: lower-footprint quants for machines the
+    # default Q4_K_M doesn't fit. Qwen's own official repo publishes no
+    # I-quants at all (verified via the HF API); these come from
+    # bartowski's repo, a well-known community quantizer -- real file
+    # sizes verified via the HF API's blobs=true listing 2026-10-10, not
+    # quoted from a model card. estimated_rss_mb is computed in
+    # models/suite.py (file_size_bytes x a conservative factor derived
+    # from our own real measured_rss_mb/file_size_bytes ratios above),
+    # not independently measured -- see suite.py's own docstring for why,
+    # and benchmarks/ for the real-vs-estimate check once a level is
+    # actually live-tested (small/IQ2_M, per docs/DECISIONS.md).
+    quants:
+      - level: IQ4_XS
+        hf_repo: bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF
+        filename: Qwen2.5-Coder-1.5B-Instruct-IQ4_XS.gguf
+        file_size_bytes: 895732000
+      - level: IQ3_M
+        hf_repo: bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF
+        filename: Qwen2.5-Coder-1.5B-Instruct-IQ3_M.gguf
+        file_size_bytes: 776664352
+      - level: IQ3_XS
+        hf_repo: bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF
+        filename: Qwen2.5-Coder-1.5B-Instruct-IQ3_XS.gguf
+        file_size_bytes: 731699488
+      - level: IQ2_M
+        hf_repo: bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF
+        filename: Qwen2.5-Coder-1.5B-Instruct-IQ2_M.gguf
+        file_size_bytes: 601055008
 
   - id: medium
     family: Qwen2.5-Coder
@@ -48,6 +76,23 @@ models:
       4096: 7458.5
     load_time_s:
       4096: 23.55
+    quants:
+      - level: IQ4_XS
+        hf_repo: bartowski/Qwen2.5-Coder-7B-Instruct-GGUF
+        filename: Qwen2.5-Coder-7B-Instruct-IQ4_XS.gguf
+        file_size_bytes: 4218473248
+      - level: IQ3_M
+        hf_repo: bartowski/Qwen2.5-Coder-7B-Instruct-GGUF
+        filename: Qwen2.5-Coder-7B-Instruct-IQ3_M.gguf
+        file_size_bytes: 3574012704
+      - level: IQ3_XS
+        hf_repo: bartowski/Qwen2.5-Coder-7B-Instruct-GGUF
+        filename: Qwen2.5-Coder-7B-Instruct-IQ3_XS.gguf
+        file_size_bytes: 3346256672
+      - level: IQ2_M
+        hf_repo: bartowski/Qwen2.5-Coder-7B-Instruct-GGUF
+        filename: Qwen2.5-Coder-7B-Instruct-IQ2_M.gguf
+        file_size_bytes: 2780343072
 
   - id: large
     family: Qwen2.5-Coder
@@ -61,3 +106,32 @@ models:
       4096: 9965.0
     load_time_s:
       4096: 86.42
+    quants:
+      - level: IQ4_XS
+        hf_repo: bartowski/Qwen2.5-Coder-14B-Instruct-GGUF
+        filename: Qwen2.5-Coder-14B-Instruct-IQ4_XS.gguf
+        file_size_bytes: 8119840992
+      - level: IQ4_NL
+        hf_repo: bartowski/Qwen2.5-Coder-14B-Instruct-GGUF
+        filename: Qwen2.5-Coder-14B-Instruct-IQ4_NL.gguf
+        file_size_bytes: 8549183712
+      - level: IQ3_M
+        hf_repo: bartowski/Qwen2.5-Coder-14B-Instruct-GGUF
+        filename: Qwen2.5-Coder-14B-Instruct-IQ3_M.gguf
+        file_size_bytes: 6916538592
+      - level: IQ3_XS
+        hf_repo: bartowski/Qwen2.5-Coder-14B-Instruct-GGUF
+        filename: Qwen2.5-Coder-14B-Instruct-IQ3_XS.gguf
+        file_size_bytes: 6383362272
+      - level: IQ2_M
+        hf_repo: bartowski/Qwen2.5-Coder-14B-Instruct-GGUF
+        filename: Qwen2.5-Coder-14B-Instruct-IQ2_M.gguf
+        file_size_bytes: 5356146912
+      - level: IQ2_S
+        hf_repo: bartowski/Qwen2.5-Coder-14B-Instruct-GGUF
+        filename: Qwen2.5-Coder-14B-Instruct-IQ2_S.gguf
+        file_size_bytes: 5003727072
+      - level: IQ2_XS
+        hf_repo: bartowski/Qwen2.5-Coder-14B-Instruct-GGUF
+        filename: Qwen2.5-Coder-14B-Instruct-IQ2_XS.gguf
+        file_size_bytes: 4704575712
