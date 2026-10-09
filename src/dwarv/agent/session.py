@@ -497,13 +497,27 @@ _HELP_TEXT = (
 def run_repl(llama_server_path: str, cache_dir: str, repo_dir: str = ".") -> None:
     from rich.console import Console
 
+    from dwarv.agent.render import style_narration, style_reply
+
     console = Console()
-    session = ChatSession(llama_server_path, cache_dir, repo_dir, print_fn=console.print)
+    # ChatSession's print_fn contract stays plain text (unchanged, still
+    # trivially fake-able in tests) -- styling is applied here, at the
+    # display boundary, not inside the session's own logic.
+    session = ChatSession(
+        llama_server_path,
+        cache_dir,
+        repo_dir,
+        print_fn=lambda text: console.print(style_narration(text)),
+    )
     session.start()
     try:
         while True:
             try:
-                user_text = console.input("[bold cyan]you>[/bold cyan] ")
+                # Plain ">" -- not a fancier Unicode prompt character --
+                # deliberately: matches Claude Code's own real prompt
+                # convention, and a Unicode character here crashed outright
+                # on a legacy Windows console (cp1252), confirmed live.
+                user_text = console.input("[bold magenta]>[/bold magenta] ")
             except (EOFError, KeyboardInterrupt):
                 break
             stripped = user_text.strip()
@@ -525,6 +539,8 @@ def run_repl(llama_server_path: str, cache_dir: str, repo_dir: str = ".") -> Non
                     f"(demo) squeeze scheduled: RAM budget will cut to {mb:.0f}MB on the next turn."
                 )
                 continue
-            console.print(session.handle_message(user_text))
+            with console.status("[cyan]Dwarv is thinking...[/cyan]", spinner="dots"):
+                reply = session.handle_message(user_text)
+            console.print(style_reply(reply))
     finally:
         session.stop()
