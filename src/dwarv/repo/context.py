@@ -3,6 +3,28 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _ROOT_MARKERS = (".git", "pyproject.toml", "setup.py", "package.json")
+_SKIP_DIR_NAMES = {
+    ".git",
+    "__pycache__",
+    "node_modules",
+    ".venv",
+    "venv",
+    ".pytest_cache",
+    ".mypy_cache",
+}
+_TEXT_EXTENSIONS = {
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".md",
+    ".txt",
+    ".json",
+    ".toml",
+    ".yaml",
+    ".yml",
+}
 
 
 @dataclass
@@ -52,3 +74,28 @@ def _detect_test_command(root: Path) -> list[str] | None:
             pass
 
     return None
+
+
+def snapshot_repo_files(root: Path, max_total_chars: int = 8000) -> str:
+    """A small, fenced-block snapshot of the repo's source files, so the
+    model actually sees the code it's being asked about instead of guessing
+    blind. MVP-scale only -- reads whatever fits under max_total_chars in
+    path order, not real retrieval/ranking; see docs/DECISIONS.md."""
+    blocks = []
+    total = 0
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.suffix not in _TEXT_EXTENSIONS:
+            continue
+        if any(part in _SKIP_DIR_NAMES for part in path.relative_to(root).parts):
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        rel = path.relative_to(root).as_posix()
+        block = f"```{path.suffix.lstrip('.')}:{rel}\n{content}\n```\n"
+        if total + len(block) > max_total_chars:
+            continue
+        blocks.append(block)
+        total += len(block)
+    return "\n".join(blocks)

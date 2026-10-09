@@ -1,7 +1,7 @@
 import subprocess
 from pathlib import Path
 
-from dwarv.repo.context import detect_repo_context
+from dwarv.repo.context import detect_repo_context, snapshot_repo_files
 from dwarv.repo.patch import apply_patch, make_patch
 from dwarv.repo.worktree import disposable_worktree
 
@@ -97,3 +97,30 @@ def test_make_patch_new_file_has_no_old_content(tmp_path):
 
     assert patch.old_content is None
     assert "+print('hi')" in patch.diff_text
+
+
+def test_snapshot_repo_files_includes_source_and_skips_noise(tmp_path):
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "image.png").write_bytes(b"\x89PNG")
+    git_dir = repo / ".git"
+    git_dir.mkdir()
+    (git_dir / "config").write_text("[core]\n", encoding="utf-8")
+
+    snapshot = snapshot_repo_files(repo)
+
+    assert "```py:app.py" in snapshot
+    assert "x = 1" in snapshot
+    assert "image.png" not in snapshot
+    assert ".git" not in snapshot
+
+
+def test_snapshot_repo_files_respects_char_budget(tmp_path):
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    (repo / "big.py").write_text("x = 1\n" * 1000, encoding="utf-8")
+
+    snapshot = snapshot_repo_files(repo, max_total_chars=50)
+
+    assert snapshot == ""

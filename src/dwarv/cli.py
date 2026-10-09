@@ -113,8 +113,21 @@ def main(ctx: typer.Context) -> None:
 
 @app.command()
 def chat() -> None:
-    """Start a conversational coding session in the current directory. (not yet implemented)"""
-    console.print("[yellow]dwarv chat is not implemented yet (Step 5/6).[/yellow]")
+    """Start a conversational coding session in the current directory."""
+    llama_server = _llama_server_path()
+    cache_dir = _cache_dir()
+    if not llama_server.exists():
+        console.print("[red]llama-server not found -- run `dwarv setup-offline` first.[/red]")
+        raise typer.Exit(code=1)
+
+    from dwarv.agent.session import run_repl
+    from dwarv.runtime.base import RuntimeCrashed
+
+    try:
+        run_repl(str(llama_server), str(cache_dir))
+    except RuntimeCrashed as exc:
+        console.print(f"[red]llama-server crashed: {exc}[/red]")
+        raise typer.Exit(code=1) from exc
 
 
 @app.command()
