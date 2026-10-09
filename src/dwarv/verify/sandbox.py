@@ -50,13 +50,8 @@ def unshare_network_available() -> bool:
         return False
 
 
-def sandbox_tier() -> tuple[int, str]:
-    """Pick the verifier sandbox tier per DWARV_PLAN.md section 2.3. The
-    '+ unshare -n' suffix in the tier-2 detail string is the only reliable
-    signal that network isolation is actually active on this tier -- callers
-    that care should check for that exact substring, not just "unshare"."""
-    if docker_available():
-        return 1, "Docker (--network none) -- strongest, cross-platform"
+def _native_tier() -> tuple[int, str]:
+    """The best non-Docker tier for this OS."""
     system = platform.system()
     if system in ("Linux", "Darwin"):
         if unshare_network_available():
@@ -70,20 +65,43 @@ def sandbox_tier() -> tuple[int, str]:
     return 3, "Windows Job Object + timeout -- reduced isolation, no rlimit/unshare equivalent"
 
 
+def sandbox_tier() -> tuple[int, str]:
+    """Pick the verifier sandbox tier per DWARV_PLAN.md section 2.3. The
+    '+ unshare -n' suffix in the tier-2 detail string is the only reliable
+    signal that network isolation is actually active on this tier -- callers
+    that care should check for that exact substring, not just "unshare"."""
+    if docker_available():
+        return 1, "Docker (--network none) -- strongest, cross-platform"
+    return _native_tier()
+
+
 def run(
     cmd: list[str],
     cwd: Path,
     timeout_s: float = DEFAULT_TIMEOUT_S,
     memory_limit_mb: float | None = DEFAULT_MEMORY_LIMIT_MB,
     force_tier: int | None = None,
+    skip_docker: bool = False,
 ) -> SandboxResult:
     """Run `cmd` in `cwd` under the tier `sandbox_tier()` selects (or
     `force_tier`, for deterministic testing without needing Docker). `cwd`
     must always be a disposable worktree (see repo/worktree.py) -- this
-    function never protects the caller from running against a real tree."""
-    tier, tier_detail = (
-        sandbox_tier() if force_tier is None else (force_tier, f"forced tier {force_tier}")
-    )
+    function never protects the caller from running against a real tree.
+
+    `skip_docker=True` falls through to the native tier even when Docker is
+    available. Use this for running a *user's own* test command: Docker's
+    generic `python:3.11-slim` image has none of a real project's installed
+    dependencies (often not even the test runner itself), so it can only
+    meaningfully run fully self-contained code (e.g. the Step 9 internal
+    eval's EvalPlus candidates) -- not an arbitrary repo's real test suite,
+    which needs the host/user's own activated environment. See
+    docs/DECISIONS.md."""
+    if force_tier is not None:
+        tier, tier_detail = force_tier, f"forced tier {force_tier}"
+    elif skip_docker:
+        tier, tier_detail = _native_tier()
+    else:
+        tier, tier_detail = sandbox_tier()
     if tier == 1:
         return _run_tier1_docker(cmd, cwd, timeout_s, memory_limit_mb, tier_detail)
     if tier == 2:

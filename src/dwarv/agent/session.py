@@ -199,7 +199,10 @@ class ChatSession:
         with disposable_worktree(self.repo_ctx.root, self.repo_ctx.is_git_repo) as wt:
             for p in patches:
                 apply_patch(p, wt)
-            sandbox_result = sandbox_run(test_command, cwd=wt, timeout_s=30.0)
+            # skip_docker: the repo's own test command needs the host/user's
+            # actual environment (installed deps, the right interpreter) --
+            # Docker's generic image can't see those. See verify/sandbox.py.
+            sandbox_result = sandbox_run(test_command, cwd=wt, timeout_s=30.0, skip_docker=True)
         passed = sandbox_result.returncode == 0 and not sandbox_result.timed_out
         return classify(
             code="\n".join(p.new_content for p in patches),
