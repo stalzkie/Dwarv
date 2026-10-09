@@ -14,6 +14,14 @@ class GenParams:
     # in the pinned build -- llama-server --help lists -j/--json-schema).
     # None means unconstrained free-form generation, today's behavior.
     json_schema: dict | None = None
+    # Found live-running the demo script on the small model: an unpenalized
+    # low-temperature generation degenerated into looping the same sentence
+    # until it hit max_tokens, truncating the JSON mid-string (see
+    # MalformedStructuredResponse's handling in agent/session.py). 1.1 is
+    # llama.cpp's own long-established default for exactly this failure
+    # mode; confirmed live that llama-server's /v1/chat/completions accepts
+    # it and produces normal, non-degenerate output with it set.
+    repeat_penalty: float = 1.1
 
 
 @dataclass

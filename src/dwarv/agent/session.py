@@ -6,6 +6,7 @@ from dwarv.agent.prompts import (
     DWARV_RESPONSE_SCHEMA,
     MalformedStructuredResponse,
     parse_structured_response,
+    salvage_message,
     structured_repair_prompt,
     structured_system_prompt,
 )
@@ -338,11 +339,14 @@ class ChatSession:
             except MalformedStructuredResponse:
                 # Schema-constrained generation should make this unreachable
                 # in practice (see agent/prompts.py's own docstring); if it
-                # ever happens anyway -- a crashed/killed server, a future
-                # llama.cpp regression -- degrade to showing the raw text
-                # rather than crashing the turn or silently losing it.
+                # ever happens anyway -- a crashed/killed server, a
+                # max_tokens truncation mid-JSON (live-observed with the
+                # small model, see GenParams.repeat_penalty's own comment),
+                # a future llama.cpp regression -- degrade gracefully
+                # rather than crashing the turn or showing a raw, unclosed
+                # JSON blob as if it were the real answer.
                 self.history.append({"role": "assistant", "content": result.text})
-                return result.text
+                return salvage_message(result.text) or result.text
 
             if response.kind == "direct_answer" or not response.files:
                 self.history.append({"role": "assistant", "content": result.text})

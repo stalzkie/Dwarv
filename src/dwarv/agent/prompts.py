@@ -61,6 +61,30 @@ class MalformedStructuredResponse(Exception):
     unhandled exception into the middle of a turn."""
 
 
+_MESSAGE_FIELD_RE = re.compile(r'"message"\s*:\s*"((?:[^"\\]|\\.)*)')
+
+
+def salvage_message(raw_text: str) -> str | None:
+    """Best-effort extraction of the 'message' field's value from text that
+    failed to parse as DWARV_RESPONSE_SCHEMA JSON. Found live running the
+    demo script: a small model's degenerate repetition loop exhausted
+    max_tokens before the JSON could close, so
+    MalformedStructuredResponse's fallback was showing the user a raw,
+    unclosed '{"kind": "direct_answer", "message": "...' blob -- this
+    extracts just the readable message text instead, even from a string
+    that was cut off mid-value (the regex has no closing-quote
+    requirement, so it still matches up to wherever the text ends).
+    Returns None only if no 'message' field is found at all."""
+    match = _MESSAGE_FIELD_RE.search(raw_text)
+    if match is None:
+        return None
+    captured = match.group(1)
+    try:
+        return json.loads(f'"{captured}"')  # unescapes \n, \", etc.
+    except json.JSONDecodeError:
+        return captured  # truncated mid-escape-sequence -- still readable
+
+
 def parse_structured_response(text: str) -> StructuredResponse:
     try:
         data = json.loads(text)

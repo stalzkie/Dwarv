@@ -6,6 +6,7 @@ from dwarv.agent.prompts import (
     extract_patch,
     parse_structured_response,
     repair_prompt,
+    salvage_message,
     structured_system_prompt,
     system_prompt,
 )
@@ -111,3 +112,28 @@ def test_parse_structured_response_rejects_missing_message():
 def test_parse_structured_response_rejects_malformed_file_entry():
     with pytest.raises(MalformedStructuredResponse, match="malformed file entry"):
         parse_structured_response('{"kind": "patch", "message": "x", "files": [{"path": "a.py"}]}')
+
+
+# --- salvage_message: the fallback when MalformedStructuredResponse is raised ---
+
+
+def test_salvage_message_from_well_formed_json():
+    text = '{"kind": "direct_answer", "message": "hello there", "files": []}'
+    assert salvage_message(text) == "hello there"
+
+
+def test_salvage_message_from_json_truncated_mid_string():
+    """Real case live-observed: max_tokens cut off generation mid-sentence,
+    before the closing quote/brace -- the regex has no closing-quote
+    requirement, so it still recovers the readable prefix."""
+    text = '{"kind": "direct_answer", "message": "The function now handles the'
+    assert salvage_message(text) == "The function now handles the"
+
+
+def test_salvage_message_unescapes_json_string_escapes():
+    text = r'{"kind": "direct_answer", "message": "line one\nline two", "files": []}'
+    assert salvage_message(text) == "line one\nline two"
+
+
+def test_salvage_message_returns_none_when_no_message_field_present():
+    assert salvage_message("not json at all, no message field here") is None

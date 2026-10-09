@@ -197,6 +197,21 @@ def test_malformed_response_degrades_to_raw_text_without_crashing(tmp_path):
     assert reply == "not valid json at all"
 
 
+def test_truncated_json_response_salvages_the_message_instead_of_showing_raw_json(tmp_path):
+    """Real failure mode found live running the demo script: a small
+    model's degenerate repetition loop exhausted max_tokens before the
+    JSON could close, so result.text was an unclosed
+    '{"kind": "direct_answer", "message": "...' blob. The user must see
+    the readable message text, never raw JSON syntax."""
+    truncated = '{"kind": "direct_answer", "message": "The function now handles the'
+    session, _repo = _make_session(tmp_path, [truncated])
+
+    reply = session.handle_message("what does add() do?")
+
+    assert reply == "The function now handles the"
+    assert '"kind"' not in reply
+
+
 def test_verified_fix_reply_includes_the_models_own_message(tmp_path):
     fixed = _patch_response(
         "Flipped the subtraction to addition.", [("app.py", "def add(a, b):\n    return a + b\n")]

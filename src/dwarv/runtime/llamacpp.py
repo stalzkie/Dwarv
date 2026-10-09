@@ -135,6 +135,7 @@ class LlamaCppRuntime:
             "temperature": params.temperature,
             "top_p": params.top_p,
             "max_tokens": params.max_tokens,
+            "repeat_penalty": params.repeat_penalty,
         }
         if params.seed is not None:
             payload["seed"] = params.seed
