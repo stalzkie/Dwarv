@@ -518,7 +518,10 @@ def run_repl(llama_server_path: str, cache_dir: str, repo_dir: str = ".") -> Non
     from dwarv.agent.render import style_narration, style_reply
 
     console = Console()
-    console.print(f"[blue]{_BANNER}[/blue]")
+    # #3b9eff matches the lighter accent blue used in docs/assets/logo.svg
+    # and the GUI panel's --accent token, so the banner reads as the same
+    # brand color everywhere the logo appears.
+    console.print(f"[#3b9eff]{_BANNER}[/#3b9eff]")
     # ChatSession's print_fn contract stays plain text (unchanged, still
     # trivially fake-able in tests) -- styling is applied here, at the
     # display boundary, not inside the session's own logic.

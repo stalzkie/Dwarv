@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="Dwarv" width="220" />
+  <img src="docs/assets/logo.svg" alt="Dwarv" width="220" />
 </p>
 
 # Dwarv
