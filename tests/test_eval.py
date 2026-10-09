@@ -96,6 +96,33 @@ def test_verify_candidate_fail():
     assert "EVALPLUS_FAIL" in result.stdout
 
 
+def test_verify_candidate_handles_ground_truth_integer_beyond_str_digit_limit():
+    """Real bug found running the real eval past the dry run's first 5
+    tasks: at least one real HumanEval+ task's ground truth is an integer
+    whose decimal repr() exceeds Python 3.11+'s int-to-str conversion
+    limit (default 4300 digits) -- and that limit is enforced at COMPILE
+    time in the generated check.py subprocess, so it can't be worked
+    around by raising the limit at runtime. This builds a synthetic task
+    with a 5000-digit expected value (well past the default limit) to
+    prove the fix (hex-literal serialization in evalplus_adapter._safe_repr)
+    actually lets the subprocess compile and run instead of crashing."""
+    huge = int("1" + "0" * 5000)
+    task = EvalTask(
+        task_id="synthetic/huge",
+        prompt="def huge(a, b):\n",
+        entry_point="huge",
+        inputs=[[0, 0]],
+        expected=[huge],
+        atol=0.0,
+    )
+    # Computed at runtime via int('1' + '0'*5000), not a literal, so the
+    # candidate code itself doesn't hit the same compile-time digit limit
+    # this test is trying to isolate to the EXPECTED/INPUTS formatting.
+    passed, result = verify_candidate(task, "    return int('1' + '0' * 5000)\n")
+    assert passed, result.stdout + result.stderr
+    assert "EVALPLUS_PASS" in result.stdout
+
+
 # --- baselines ---
 
 
