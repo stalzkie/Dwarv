@@ -1,13 +1,18 @@
 :root {
-  --bg: #0f1115;
-  --panel: #171a21;
-  --border: #2a2e37;
-  --text: #e4e7ec;
-  --muted: #8b93a1;
-  --accent: #4a9eff;
+  --bg: #0b0e14;
+  --terminal-bg: #0d1117;
+  --bar-bg: #11161f;
+  --panel: #0f141c;
+  --border: #1d2633;
+  --border-bright: #2a3a52;
+  --text: #d6e2f0;
+  --muted: #5f7390;
+  --accent: #3b9eff;
+  --accent-dim: #1f5fa8;
   --warn: #e0a030;
-  --violation: #e05050;
+  --violation: #e05a5a;
   --ok: #4ac98a;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
 * {
@@ -19,29 +24,105 @@ body {
   padding: 24px;
   background: var(--bg);
   color: var(--text);
-  font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  line-height: 1.5;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.terminal {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--terminal-bg);
+  border: 1px solid var(--border-bright);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(59, 158, 255, 0.05),
+    0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.terminal-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--bar-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  border: 1px solid var(--border-bright);
+}
+
+.terminal-title {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.terminal-body {
+  padding: 20px 24px 28px;
+}
+
+.prompt-line {
+  margin: 0 0 20px;
+  color: var(--text);
+}
+
+.prompt {
+  color: var(--accent);
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.cursor {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  margin-left: 6px;
+  background: var(--accent);
+  vertical-align: text-bottom;
+  animation: blink 1s steps(1) infinite;
+}
+
+@keyframes blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
 }
 
 h1 {
-  font-size: 20px;
+  font-size: 16px;
   margin: 0 0 16px;
+  color: var(--text);
 }
 
 h2 {
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  margin: 0 0 10px;
+  font-weight: 600;
 }
 
 section {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
+  border-left: 2px solid var(--accent-dim);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
 }
 
 p {
@@ -61,20 +142,22 @@ p {
 
 .flow-node {
   padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border-bright);
+  background: var(--terminal-bg);
+  font-size: 11px;
   color: var(--muted);
 }
 
 .flow-node-active {
   border-color: var(--accent);
   color: var(--accent);
+  background: rgba(59, 158, 255, 0.12);
   font-weight: 600;
 }
 
 canvas {
-  background: #0a0c10;
+  background: #070a10;
   border: 1px solid var(--border);
   border-radius: 4px;
   width: 100%;
@@ -92,7 +175,8 @@ canvas {
 
 .decision {
   border-bottom: 1px solid var(--border);
-  padding: 8px 0;
+  padding: 8px 0 8px 12px;
+  border-left: 2px solid var(--border-bright);
 }
 
 .decision:last-child {
@@ -101,7 +185,13 @@ canvas {
 
 .decision-head {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.decision-head::before {
+  content: "> ";
+  color: var(--muted);
 }
 
 .decision-head.event-budget_warn {
@@ -114,17 +204,32 @@ canvas {
 
 .decision-narration {
   color: var(--text);
-  font-size: 13px;
-  margin: 2px 0;
+  font-size: 12px;
+  margin: 3px 0;
 }
 
 .decision-snapshot {
   color: var(--muted);
   font-size: 11px;
-  background: #0a0c10;
+  background: var(--terminal-bg);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 6px 8px;
   margin: 4px 0 0;
   overflow-x: auto;
   white-space: pre-wrap;
+  font-family: var(--mono);
+}
+
+#decision-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+#decision-list::-webkit-scrollbar-track {
+  background: var(--terminal-bg);
+}
+
+#decision-list::-webkit-scrollbar-thumb {
+  background: var(--border-bright);
+  border-radius: 4px;
 }

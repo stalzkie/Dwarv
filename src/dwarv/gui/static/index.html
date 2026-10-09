@@ -7,29 +7,41 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <h1>dwarv -- live session</h1>
+  <div class="terminal">
+    <div class="terminal-bar">
+      <span class="dot"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
+      <span class="terminal-title">dwarv — session transparency</span>
+    </div>
 
-  <section id="summary">
-    <p id="model-summary">Loading...</p>
-    <p id="explanation"></p>
-    <p id="sandbox-summary"></p>
-    <p id="repo-summary"></p>
-  </section>
+    <div class="terminal-body">
+      <p class="prompt-line"><span class="prompt">$</span> dwarv gui<span class="cursor"></span></p>
 
-  <section id="flow">
-    <h2>Flow</h2>
-    <div id="flow-nodes"></div>
-  </section>
+      <section id="summary">
+        <h2>&gt; session</h2>
+        <p id="model-summary">Loading...</p>
+        <p id="explanation"></p>
+        <p id="sandbox-summary"></p>
+        <p id="repo-summary"></p>
+      </section>
 
-  <section id="chart">
-    <h2>Server RSS (live)</h2>
-    <canvas id="rss-chart" width="640" height="160"></canvas>
-  </section>
+      <section id="flow">
+        <h2>&gt; flow</h2>
+        <div id="flow-nodes"></div>
+      </section>
 
-  <section id="decisions">
-    <h2>Decisions</h2>
-    <ul id="decision-list"></ul>
-  </section>
+      <section id="chart">
+        <h2>&gt; server rss (live)</h2>
+        <canvas id="rss-chart" width="640" height="160"></canvas>
+      </section>
+
+      <section id="decisions">
+        <h2>&gt; decisions</h2>
+        <ul id="decision-list"></ul>
+      </section>
+    </div>
+  </div>
 
   <script src="/app.js"></script>
 </body>

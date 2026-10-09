@@ -78,7 +78,7 @@ function drawChart() {
   const maxVal = Math.max(...rssVals, 1);
   const stepX = w / (state.samples.length - 1);
 
-  ctx.strokeStyle = "#4a9eff";
+  ctx.strokeStyle = "#3b9eff";
   ctx.lineWidth = 2;
   ctx.beginPath();
   rssVals.forEach((v, i) => {
@@ -123,12 +123,15 @@ function handleLiveEvent(ev) {
 }
 
 async function loadSession() {
+  // Only paints the summary fields (model/explanation/sandbox/repo) for an
+  // instant first render -- decisions and resource samples come from
+  // connectLive()'s SSE stream, which always replays the session's full
+  // history before going live. Rendering them here too would double-count
+  // every decision and sample.
   try {
     const res = await fetch("/api/session");
     const data = await res.json();
     renderSummary(data);
-    for (const d of data.decisions || []) appendDecision(d);
-    if (data.latest_sample) pushSample(data.latest_sample);
   } catch {
     setText("model-summary", "No active session.");
   }
