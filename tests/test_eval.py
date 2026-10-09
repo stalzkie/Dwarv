@@ -2,10 +2,14 @@ from pathlib import Path
 
 from dwarv.eval.analyze import (
     bootstrap_ci,
+    mcnemar_test,
     per_task_diff,
     summarize,
+    wilcoxon_signed_rank,
+    write_significance_report,
     write_summary_csv,
     write_summary_markdown,
+    write_with_vs_without_chart,
 )
 from dwarv.eval.baselines import run_dwarv_policy, run_fixed, run_retry, run_retry_escalate
 from dwarv.eval.harness import _load_completed_keys, _result_key
@@ -238,6 +242,130 @@ def test_per_task_diff_finds_winner():
     assert len(diffs) == 1
     assert diffs[0]["task_id"] == "t1"
     assert diffs[0]["winner"] == "dwarv"
+
+
+def _paired_rows(profile: str, both_pass: int, both_fail: int, a_only: int, b_only: int) -> list:
+    """Builds rows for "a" (dwarv) and "b" (fixed) across synthetic tasks
+    with the exact requested discordant-pair structure, so the McNemar
+    result is a hand-checkable fact about the input, not a black box."""
+    rows = []
+    idx = 0
+    for _ in range(both_pass):
+        rows.append({"system": "a", "profile": profile, "task_id": f"t{idx}", "passed": True})
+        rows.append({"system": "b", "profile": profile, "task_id": f"t{idx}", "passed": True})
+        idx += 1
+    for _ in range(both_fail):
+        rows.append({"system": "a", "profile": profile, "task_id": f"t{idx}", "passed": False})
+        rows.append({"system": "b", "profile": profile, "task_id": f"t{idx}", "passed": False})
+        idx += 1
+    for _ in range(a_only):
+        rows.append({"system": "a", "profile": profile, "task_id": f"t{idx}", "passed": True})
+        rows.append({"system": "b", "profile": profile, "task_id": f"t{idx}", "passed": False})
+        idx += 1
+    for _ in range(b_only):
+        rows.append({"system": "a", "profile": profile, "task_id": f"t{idx}", "passed": False})
+        rows.append({"system": "b", "profile": profile, "task_id": f"t{idx}", "passed": True})
+        idx += 1
+    return rows
+
+
+def test_mcnemar_test_counts_are_exact():
+    rows = _paired_rows("p", both_pass=3, both_fail=2, a_only=4, b_only=1)
+    result = mcnemar_test(rows, "a", "b", "p")
+    assert result["n_tasks"] == 10
+    assert result["both_pass"] == 3
+    assert result["both_fail"] == 2
+    assert result["a_only"] == 4
+    assert result["b_only"] == 1
+    assert 0.0 <= result["p_value"] <= 1.0
+
+
+def test_mcnemar_test_symmetric_discordant_pairs_gives_p_one():
+    # Equal a_only/b_only is the textbook "no evidence of difference" case
+    # for McNemar's exact test -- always gives p=1.0.
+    rows = _paired_rows("p", both_pass=0, both_fail=0, a_only=5, b_only=5)
+    result = mcnemar_test(rows, "a", "b", "p")
+    assert result["p_value"] == 1.0
+    assert result["significant_at_0.05"] is False
+
+
+def test_mcnemar_test_one_sided_discordant_pairs_is_significant():
+    # 20 discordant pairs, all favoring "a" -- an obviously non-chance
+    # pattern (binomial(20, 0.5) extreme tail), should be significant.
+    rows = _paired_rows("p", both_pass=0, both_fail=0, a_only=20, b_only=0)
+    result = mcnemar_test(rows, "a", "b", "p")
+    assert result["p_value"] < 0.05
+    assert result["significant_at_0.05"] is True
+
+
+def test_mcnemar_test_no_discordant_pairs_gives_p_one():
+    rows = _paired_rows("p", both_pass=4, both_fail=4, a_only=0, b_only=0)
+    result = mcnemar_test(rows, "a", "b", "p")
+    assert result["p_value"] == 1.0
+
+
+def test_wilcoxon_signed_rank_detects_a_clear_difference():
+    rows = []
+    for i in range(10):
+        rows.append({"system": "a", "profile": "p", "task_id": f"t{i}", "wall_s": 5.0})
+        rows.append({"system": "b", "profile": "p", "task_id": f"t{i}", "wall_s": 20.0})
+    result = wilcoxon_signed_rank(rows, "a", "b", "p", metric="wall_s")
+    assert result["n_tasks"] == 10
+    assert result["mean_a"] == 5.0
+    assert result["mean_b"] == 20.0
+    assert result["p_value"] < 0.05
+    assert result["significant_at_0.05"] is True
+
+
+def test_wilcoxon_signed_rank_handles_identical_values_gracefully():
+    rows = [
+        {"system": "a", "profile": "p", "task_id": "t0", "wall_s": 5.0},
+        {"system": "b", "profile": "p", "task_id": "t0", "wall_s": 5.0},
+        {"system": "a", "profile": "p", "task_id": "t1", "wall_s": 5.0},
+        {"system": "b", "profile": "p", "task_id": "t1", "wall_s": 5.0},
+    ]
+    result = wilcoxon_signed_rank(rows, "a", "b", "p", metric="wall_s")
+    assert result["p_value"] is None
+    assert "note" in result
+
+
+def test_write_significance_report_produces_real_files(tmp_path: Path):
+    rows = _paired_rows("p", both_pass=2, both_fail=1, a_only=3, b_only=1)
+    for row in rows:
+        row["wall_s"] = 5.0 if row["system"] == "a" else 8.0
+        row["peak_rss_mb"] = 1000.0 if row["system"] == "a" else 1200.0
+        row["system"] = "dwarv" if row["system"] == "a" else "fixed"
+
+    write_significance_report(rows, tmp_path / "significance")
+
+    csv_text = (tmp_path / "significance.csv").read_text(encoding="utf-8")
+    md_text = (tmp_path / "significance.md").read_text(encoding="utf-8")
+    assert "mcnemar" in csv_text
+    assert "wilcoxon" in csv_text
+    assert "dwarv" in md_text and "fixed" in md_text
+
+
+def test_write_with_vs_without_chart_produces_a_real_png(tmp_path: Path):
+    summary = [
+        {
+            "system": "dwarv",
+            "profile": "p",
+            "pass_rate": 0.8,
+            "pass_rate_ci_lo": 0.4,
+            "pass_rate_ci_hi": 1.0,
+        },
+        {
+            "system": "fixed",
+            "profile": "p",
+            "pass_rate": 0.6,
+            "pass_rate_ci_lo": 0.2,
+            "pass_rate_ci_hi": 0.9,
+        },
+    ]
+    out_path = tmp_path / "with_vs_without.png"
+    write_with_vs_without_chart(summary, out_path)
+    assert out_path.exists()
+    assert out_path.stat().st_size > 0
 
 
 def test_write_summary_csv_and_markdown(tmp_path: Path):

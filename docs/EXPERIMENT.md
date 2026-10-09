@@ -35,6 +35,18 @@ Per the Step 9 acceptance check ("a small dry run completes end-to-end and produ
 
 All four systems ran on the small model the whole time in this run (no escalation/step-down was triggered under `static_loose` -- there was no resource pressure to react to, and no repeated-failure streak long enough to trigger `retry_escalate`'s or `dwarv`'s escalation rule on these particular 5 tasks). With n=5 and 1 seed, the CIs are wide and overlapping -- exactly what you'd expect from a dry run, not evidence of anything. Harness mechanics confirmed working: real model inference, real sandboxed verification (`verify/evalplus_adapter.py` against our own cross-platform sandbox, not evalplus's Windows-incompatible checker), real JSONL output, real resumability, real bootstrap CIs, real charts.
 
+#### Proper paired-comparison statistics (added after the dry run, researched before building)
+
+Comparing two independent bootstrap CIs (as above) is the wrong test for this data: `dwarv` and `fixed` ran the identical 5 tasks, so the outcomes are *paired*, not independent samples -- treating them as independent throws away the information that both systems saw exactly the same task difficulty. The correct tests, researched before implementing (not guessed):
+
+- **McNemar's exact test** for paired binary pass/fail outcomes on identical tasks -- the standard method in matched-pairs classifier comparisons, more powerful than unpaired tests because it isolates only the tasks where the two systems disagree. ([Exact McNemar's Test, Fay](https://cran.r-project.org/web/packages/exact2x2/vignettes/exactMcNemar.pdf); [McNemar's Test: The Hidden Gem for Paired Binary Data](https://jameshoward.us/2024/12/17/mcnemars-test-the-hidden-gem-for-paired-binary-data/))
+- **Wilcoxon signed-rank test**, the paired analog for continuous metrics (`wall_s`, `peak_rss_mb`) on the same tasks.
+- **Sample size**: detecting a medium effect size in a pass-rate comparison at standard power (0.8) and significance (α=0.05) typically needs on the order of 100-138+ tasks per condition for an unpaired proportion test -- confirming numerically why n=5 (or even the frozen protocol's 40 tasks x 3 seeds, which aren't fully independent since the same 40 tasks repeat) is nowhere near enough to detect anything but a large effect.
+
+Implemented in `eval/analyze.py`: `mcnemar_test()`, `wilcoxon_signed_rank()`, `write_significance_report()` (CSV + Markdown), `write_with_vs_without_chart()` (focused `dwarv` vs `fixed` bar chart, i.e. "with Dwarv" vs "without Dwarv" -- `fixed` being the closest thing to no wrapper at all: one model, one generation, no retry, no resource-awareness). Run for real against `dryrun2`:
+
+`dwarv` vs `fixed`, `static_loose`: 0 discordant pairs (both systems passed the identical 4 of 5 tasks and failed the identical 1) -- McNemar p=1.0. `wall_s` p=0.625, `peak_rss_mb` p=0.4375 (Wilcoxon). All non-significant, which is the honest, correct conclusion at this n -- not "no difference," but **not enough data to tell**, now backed by the statistically appropriate test rather than eyeballing overlapping CIs. See `eval_results/dryrun2/{significance.csv,significance.md,with_vs_without.png}`.
+
 ### A real case where Dwarv did not help (honesty check, Step 10)
 
 Per `DWARV_PLAN.md` Step 10's "also show one case where Dwarv does not help" --
