@@ -1,3 +1,4 @@
+import os
 import platform
 import shutil
 import subprocess
@@ -75,6 +76,21 @@ def sandbox_tier() -> tuple[int, str]:
     return _native_tier()
 
 
+def _merged_env(extra_env: dict[str, str] | None) -> dict[str, str] | None:
+    """Inherit the caller's environment and layer `extra_env` on top,
+    appending to (never replacing) any var the user's own environment
+    already set -- e.g. PYTHONPATH, so a src-layout repo's own pythonpath
+    config isn't clobbered. Returns None (inherit as-is) when there's
+    nothing to add, so callers that don't need this stay byte-identical."""
+    if not extra_env:
+        return None
+    env = os.environ.copy()
+    for key, value in extra_env.items():
+        existing = env.get(key)
+        env[key] = f"{value}{os.pathsep}{existing}" if existing else value
+    return env
+
+
 def run(
     cmd: list[str],
     cwd: Path,
@@ -82,6 +98,7 @@ def run(
     memory_limit_mb: float | None = DEFAULT_MEMORY_LIMIT_MB,
     force_tier: int | None = None,
     skip_docker: bool = False,
+    extra_env: dict[str, str] | None = None,
 ) -> SandboxResult:
     """Run `cmd` in `cwd` under the tier `sandbox_tier()` selects (or
     `force_tier`, for deterministic testing without needing Docker). `cwd`
@@ -95,22 +112,33 @@ def run(
     meaningfully run fully self-contained code (e.g. the Step 9 internal
     eval's EvalPlus candidates) -- not an arbitrary repo's real test suite,
     which needs the host/user's own activated environment. See
-    docs/DECISIONS.md."""
+    docs/DECISIONS.md.
+
+    `extra_env` is appended to the inherited environment (e.g.
+    `{"PYTHONPATH": str(worktree)}` so bare `pytest` can import a root-level
+    module from a `tests/` subdirectory -- see docs/DECISIONS.md for why
+    this is a PYTHONPATH fix rather than switching to `python -m pytest`)."""
     if force_tier is not None:
         tier, tier_detail = force_tier, f"forced tier {force_tier}"
     elif skip_docker:
         tier, tier_detail = _native_tier()
     else:
         tier, tier_detail = sandbox_tier()
+    env = _merged_env(extra_env)
     if tier == 1:
-        return _run_tier1_docker(cmd, cwd, timeout_s, memory_limit_mb, tier_detail)
+        return _run_tier1_docker(cmd, cwd, timeout_s, memory_limit_mb, tier_detail, env)
     if tier == 2:
-        return _run_tier2_posix(cmd, cwd, timeout_s, memory_limit_mb, tier_detail)
-    return _run_tier3_windows(cmd, cwd, timeout_s, memory_limit_mb, tier_detail)
+        return _run_tier2_posix(cmd, cwd, timeout_s, memory_limit_mb, tier_detail, env)
+    return _run_tier3_windows(cmd, cwd, timeout_s, memory_limit_mb, tier_detail, env)
 
 
 def _run_tier1_docker(
-    cmd: list[str], cwd: Path, timeout_s: float, memory_limit_mb: float | None, tier_detail: str
+    cmd: list[str],
+    cwd: Path,
+    timeout_s: float,
+    memory_limit_mb: float | None,
+    tier_detail: str,
+    env: dict[str, str] | None,
 ) -> SandboxResult:
     docker_cmd = [
         "docker",
@@ -125,6 +153,10 @@ def _run_tier1_docker(
     ]
     if memory_limit_mb:
         docker_cmd += ["--memory", f"{int(memory_limit_mb)}m"]
+    if env:
+        for key, value in env.items():
+            if os.environ.get(key) != value:
+                docker_cmd += ["-e", f"{key}={value}"]
     docker_cmd += [DOCKER_IMAGE, *cmd]
     try:
         proc = subprocess.run(docker_cmd, capture_output=True, text=True, timeout=timeout_s)
@@ -134,7 +166,12 @@ def _run_tier1_docker(
 
 
 def _run_tier2_posix(
-    cmd: list[str], cwd: Path, timeout_s: float, memory_limit_mb: float | None, tier_detail: str
+    cmd: list[str],
+    cwd: Path,
+    timeout_s: float,
+    memory_limit_mb: float | None,
+    tier_detail: str,
+    env: dict[str, str] | None,
 ) -> SandboxResult:
     import resource  # POSIX only; this path never runs on Windows
 
@@ -157,7 +194,13 @@ def _run_tier2_posix(
 
     try:
         proc = subprocess.run(
-            full_cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout_s, preexec_fn=_limits
+            full_cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            preexec_fn=_limits,
+            env=env,
         )
         return SandboxResult(proc.returncode, proc.stdout, proc.stderr, False, 2, tier_detail)
     except subprocess.TimeoutExpired as exc:
@@ -165,7 +208,12 @@ def _run_tier2_posix(
 
 
 def _run_tier3_windows(
-    cmd: list[str], cwd: Path, timeout_s: float, memory_limit_mb: float | None, tier_detail: str
+    cmd: list[str],
+    cwd: Path,
+    timeout_s: float,
+    memory_limit_mb: float | None,
+    tier_detail: str,
+    env: dict[str, str] | None,
 ) -> SandboxResult:
     """No rlimit/unshare equivalent on Windows. The wall-clock timeout is real
     and kernel-enforced (the process is killed on expiry); the memory limit
@@ -173,7 +221,9 @@ def _run_tier3_windows(
     like a true Job Object -- see docs/DECISIONS.md for why a full Job Object
     (CreateJobObject/SetInformationJobObject via pywin32 or ctypes) was
     deferred rather than built here."""
-    proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen(
+        cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env
+    )
     start = time.monotonic()
     timed_out = False
     killed_for_memory = False

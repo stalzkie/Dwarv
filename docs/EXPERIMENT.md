@@ -35,6 +35,22 @@ Per the Step 9 acceptance check ("a small dry run completes end-to-end and produ
 
 All four systems ran on the small model the whole time in this run (no escalation/step-down was triggered under `static_loose` -- there was no resource pressure to react to, and no repeated-failure streak long enough to trigger `retry_escalate`'s or `dwarv`'s escalation rule on these particular 5 tasks). With n=5 and 1 seed, the CIs are wide and overlapping -- exactly what you'd expect from a dry run, not evidence of anything. Harness mechanics confirmed working: real model inference, real sandboxed verification (`verify/evalplus_adapter.py` against our own cross-platform sandbox, not evalplus's Windows-incompatible checker), real JSONL output, real resumability, real bootstrap CIs, real charts.
 
+### A real case where Dwarv did not help (honesty check, Step 10)
+
+Per `DWARV_PLAN.md` Step 10's "also show one case where Dwarv does not help" --
+this is a genuine result from `dryrun2`, not staged: on `HumanEval/103`
+(`rounded_avg(n, m)`: average two integers, round, return as a binary
+string like `"0b11"`, or `-1` if `n > m`), the `dwarv` system got it wrong
+twice (`WRONG_OUTPUT`), retried with the actual failure feedback both
+times, still didn't converge, and correctly **stopped** once its 3-attempt
+budget was exhausted (`stop_reason: GAVE_UP`, `final_code: None` -- no
+unverified code was left applied). The likely culprit is the task's
+combination of a non-obvious rounding rule and the `"0b"`-prefixed binary
+string format, which small local models commonly get subtly wrong. This is
+the system working as designed -- honest failure, no silent bad output --
+not a crash or a hidden defect. Referenced from the Step 10 demo script
+instead of re-running it live, since it's already real, captured data.
+
 ### Full frozen protocol
 
 **Not yet run.** Would need all 40 tasks in `eval_tasks/subset_v1.json`, all 3 profiles (including `squeeze_mid`, which is where the hypothesis is actually tested), 3+ seeds each, across 4 systems -- 40 x 3 x 3 x 4 = 1,440 task-runs, each potentially involving multiple model loads (load times alone range 6s-86s per the real benchmark in `benchmarks/`). This is real CPU-bound LLM inference time, correctly scoped as 48h-version follow-up work per `DWARV_PLAN.md` section 8, not something to run inside a single development session.

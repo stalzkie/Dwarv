@@ -266,7 +266,17 @@ class ChatSession:
             # skip_docker: the repo's own test command needs the host/user's
             # actual environment (installed deps, the right interpreter) --
             # Docker's generic image can't see those. See verify/sandbox.py.
-            sandbox_result = sandbox_run(test_command, cwd=wt, timeout_s=30.0, skip_docker=True)
+            # extra_env PYTHONPATH: bare `pytest` (unlike `python -m pytest`)
+            # does not add the invocation cwd to sys.path, so a flat layout
+            # (code at root, tests/ with no __init__.py) fails to import the
+            # module under test. See docs/DECISIONS.md.
+            sandbox_result = sandbox_run(
+                test_command,
+                cwd=wt,
+                timeout_s=30.0,
+                skip_docker=True,
+                extra_env={"PYTHONPATH": str(wt)},
+            )
         passed = sandbox_result.returncode == 0 and not sandbox_result.timed_out
         return classify(
             code="\n".join(p.new_content for p in patches),
@@ -324,6 +334,15 @@ class ChatSession:
         return table
 
 
+_HELP_TEXT = (
+    "/status           current model, sandbox tier, repo info, live RSS, last decision\n"
+    "/squeeze <MB>      demo/dev only: cut the RAM budget to <MB> on the next turn, to\n"
+    "                   show the narrated step-down (DWARV_PLAN.md Step 8)\n"
+    "/help              this message\n"
+    "/exit, /quit       end the session"
+)
+
+
 def run_repl(llama_server_path: str, cache_dir: str, repo_dir: str = ".") -> None:
     from rich.console import Console
 
@@ -341,6 +360,20 @@ def run_repl(llama_server_path: str, cache_dir: str, repo_dir: str = ".") -> Non
                 continue
             if stripped in ("/exit", "/quit"):
                 break
+            if stripped == "/help":
+                console.print(_HELP_TEXT)
+                continue
+            if stripped.startswith("/squeeze"):
+                parts = stripped.split()
+                if len(parts) != 2 or not parts[1].replace(".", "", 1).isdigit():
+                    console.print("usage: /squeeze <new_ram_limit_mb>")
+                    continue
+                mb = float(parts[1])
+                session.schedule_squeeze(mb, reason="manual /squeeze demo trigger", after_turns=0)
+                console.print(
+                    f"(demo) squeeze scheduled: RAM budget will cut to {mb:.0f}MB on the next turn."
+                )
+                continue
             console.print(session.handle_message(user_text))
     finally:
         session.stop()

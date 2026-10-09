@@ -68,6 +68,36 @@ def test_network_access_fails(tmp_path):
     assert "connected" not in result.stdout
 
 
+def test_extra_env_pythonpath_fixes_sibling_import(tmp_path):
+    """Regression test for the Step 10 demo bug: a flat repo layout (a
+    module at the root, a test/script in a subdirectory with no
+    __init__.py) can't import the root module because the subprocess's
+    sys.path[0] is the *script's own* directory, not cwd -- the same reason
+    bare `pytest` fails to import app.py from tests/test_app.py. extra_env's
+    PYTHONPATH (as agent/session.py's _verify_in_worktree passes) fixes it
+    without changing which interpreter runs."""
+    (tmp_path / "mod.py").write_text("VALUE = 42\n", encoding="utf-8")
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "script.py").write_text("import mod\nprint(mod.VALUE)\n", encoding="utf-8")
+
+    without = run(
+        [sys.executable, "sub/script.py"], cwd=tmp_path, timeout_s=10.0, force_tier=_native_tier()
+    )
+    assert without.returncode != 0
+    assert "ModuleNotFoundError" in without.stderr
+
+    with_pythonpath = run(
+        [sys.executable, "sub/script.py"],
+        cwd=tmp_path,
+        timeout_s=10.0,
+        force_tier=_native_tier(),
+        extra_env={"PYTHONPATH": str(tmp_path)},
+    )
+    assert with_pythonpath.returncode == 0
+    assert with_pythonpath.stdout.strip() == "42"
+
+
 def test_file_writes_stay_in_temp_dir(tmp_path):
     script = tmp_path / "write.py"
     script.write_text(
