@@ -17,11 +17,14 @@ class GenParams:
     # Found live-running the demo script on the small model: an unpenalized
     # low-temperature generation degenerated into looping the same sentence
     # until it hit max_tokens, truncating the JSON mid-string (see
-    # MalformedStructuredResponse's handling in agent/session.py). 1.1 is
-    # llama.cpp's own long-established default for exactly this failure
-    # mode; confirmed live that llama-server's /v1/chat/completions accepts
-    # it and produces normal, non-degenerate output with it set.
-    repeat_penalty: float = 1.1
+    # MalformedStructuredResponse's handling in agent/session.py).
+    # llama.cpp's own long-established default (1.1) was confirmed live to
+    # reduce but not eliminate this on the real multi-turn demo scenario
+    # (squeeze-triggered step-down + accumulated history) -- 1.3 was then
+    # confirmed live, on that exact same scenario (re-ran the full demo
+    # script), to produce a short, coherent, non-repeating answer instead.
+    # See docs/DECISIONS.md.
+    repeat_penalty: float = 1.3
 
 
 @dataclass
