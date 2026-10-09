@@ -259,8 +259,25 @@ class ChatSession:
         self._turns_completed += 1
         self.logger.log("turn_started", "turn_started", turn_index=turn_index)
 
+        # Real bug found live running the demo script: psutil's "available"
+        # RAM already excludes whatever our own already-loaded model is
+        # using, so using it bare as ram_limit_mb compared the model's own
+        # RSS against a figure that had already subtracted that same RSS
+        # -- server_rss_mb() > ram_limit_mb was true almost immediately
+        # for any model bigger than the smallest tier, causing an instant
+        # step-down on turn 1 regardless of how much RAM choose_model()
+        # correctly judged was free. Adding the model's own current RSS
+        # back in restores the real invariant: the budget is "how much RAM
+        # Dwarv may use in total," not "how much is free on top of what
+        # Dwarv is already using." Reduces to plain sys_available_mb()
+        # before any model is loaded (rss_fn() is 0 then), matching
+        # choose_model()'s own pre-load calculation exactly. Still reacts
+        # correctly to real external pressure (another process eating RAM
+        # shrinks sys_available_mb without the model's RSS changing) and
+        # to a genuine /squeeze override (which sets ram_limit_mb
+        # directly, bypassing this entirely).
         budget = BudgetManager(
-            ram_limit_mb=self._sys_available_fn(),
+            ram_limit_mb=self._sys_available_fn() + self._rss_fn(),
             time_limit_s=DEFAULT_TURN_TIME_LIMIT_S,
             max_attempts=DEFAULT_MAX_ATTEMPTS,
             rss_fn=self._rss_fn,

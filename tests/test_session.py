@@ -248,6 +248,65 @@ def _rss_tracking_fn(runtime: FakeRuntime):
     return rss_fn
 
 
+def _coupled_resource_fns(runtime: FakeRuntime, total_capacity_mb: float):
+    """Unlike _rss_tracking_fn's sibling tests (which use a constant,
+    RSS-independent sys_available_fn), this couples the two the way the
+    real ResourceMonitor actually does: psutil's "available" RAM
+    mechanically shrinks by however much the server process's own RSS
+    grows, since it's real system memory, not two independent numbers.
+    Needed to reproduce the real bug this module's _turn() fix addresses
+    -- the existing tests' decoupled fakes never could."""
+    rss_by_model = {
+        m["id"]: (m.get("measured_rss_mb") or {}).get(4096, 0.0)
+        for m in FAKE_MODELS_CONFIG["models"]
+    }
+
+    def rss_fn() -> float:
+        model_id, _ctx = runtime.current()
+        return rss_by_model.get(model_id, 0.0)
+
+    def sys_available_fn() -> float:
+        return total_capacity_mb - rss_fn()
+
+    return rss_fn, sys_available_fn
+
+
+def test_loaded_models_own_rss_does_not_self_trigger_a_false_step_down(tmp_path):
+    """Real bug found live running scripts/run_demo.sh: constructing each
+    turn's BudgetManager from bare sys_available_mb() double-counts the
+    already-loaded model's own RSS against itself, since "available RAM"
+    already excludes it -- server_rss_mb() > ram_limit_mb was then true
+    almost immediately for any model bigger than the smallest tier,
+    causing an instant, narrated step-down on turn 1 even with total
+    system capacity comfortably covering the chosen model and no
+    external pressure at all. Reproduced here with total system capacity
+    fixed at 12000MB and "large" (RSS 9965MB, leaving only ~2035MB
+    "available") -- which would have been a false VIOLATION under the
+    old ram_limit_mb=sys_available_fn() alone."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    runtime = FakeRuntime([_direct_answer("the function looks fine")])
+    rss_fn, sys_available_fn = _coupled_resource_fns(runtime, total_capacity_mb=12000.0)
+
+    session = ChatSession(
+        runtime=runtime,
+        models_config=FAKE_MODELS_CONFIG,
+        repo_dir=str(repo),
+        rss_fn=rss_fn,
+        sys_available_fn=sys_available_fn,
+    )
+    session.repo_ctx.test_command = [sys.executable, "-m", "pytest"]
+    session.start()
+    assert session.current_model_id == "large"
+
+    reply = session.handle_message("what does add() do?")
+
+    assert reply == "the function looks fine"
+    assert session.current_model_id == "large"  # did NOT self-inflict a step-down
+    assert session.last_decision is None  # no RELOAD/STOP decision was ever triggered
+
+
 def test_squeeze_triggers_narrated_step_down_and_conversation_continues(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
