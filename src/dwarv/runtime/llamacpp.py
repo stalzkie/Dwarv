@@ -40,6 +40,22 @@ class LlamaCppRuntime:
     def load(self, model_id: str, ctx_size: int) -> float:
         if model_id not in self._model_paths:
             raise KeyError(f"unknown model_id {model_id!r}; known: {sorted(self._model_paths)}")
+        # Found running the real eval harness: every baseline calls load() at
+        # its own start regardless of what's already resident, so e.g.
+        # `fixed` and `retry` -- both pinned to the same model -- tear down
+        # and relaunch an identical llama-server process back to back. Real
+        # load times measured at 6-86s (see benchmarks/), so skipping a
+        # no-op reload is a real, safe win: nothing about the model or ctx
+        # changes, so generation behaves identically. Guarded on the
+        # process actually still being alive -- a crashed process must still
+        # be relaunched even if the requested model/ctx happen to match.
+        if (
+            model_id == self._model_id
+            and ctx_size == self._ctx_size
+            and self._process is not None
+            and self._process.poll() is None
+        ):
+            return 0.0
         self.unload()
         self._port = _free_port()
         args = [
