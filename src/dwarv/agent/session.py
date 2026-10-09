@@ -17,9 +17,11 @@ from dwarv.models.suite import (
     Hardware,
     choose_model,
     load_models_config,
+    load_quant_choices,
 )
 from dwarv.models.suite import resolve_model_paths as _resolve_model_paths
-from dwarv.repo.context import detect_repo_context, snapshot_repo_files
+from dwarv.repo.context import detect_repo_context
+from dwarv.repo.graph import RepoGraph, build_graph, query_relevant_context
 from dwarv.repo.patch import Patch, apply_patch, make_patch
 from dwarv.repo.worktree import disposable_worktree
 from dwarv.resources.budget import BudgetManager, BudgetStatus
@@ -73,10 +75,17 @@ class ChatSession:
             self.logger = NullEventLogger()
         self.repo_ctx = detect_repo_context(repo_dir)
         self.models_config = models_config if models_config is not None else load_models_config()
+        # DWARV_PLAN.md section 11.6: which quant level setup-offline
+        # actually downloaded per tier, if any tier isn't at its default --
+        # makes both path resolution and RSS-based tier selection reflect
+        # what's really on disk.
+        self.quant_choices = load_quant_choices(cache_dir) if cache_dir is not None else {}
         if runtime is not None:
             self.runtime = runtime
         else:
-            model_paths = _resolve_model_paths(self.models_config, cache_dir)
+            model_paths = _resolve_model_paths(
+                self.models_config, cache_dir, quant_choices=self.quant_choices
+            )
             self.runtime = LlamaCppRuntime(llama_server_path, model_paths)
         self._monitor_sample_count = 0
         self.monitor = ResourceMonitor(pid_fn=self.runtime.pid, on_sample=self._on_monitor_sample)
@@ -94,6 +103,7 @@ class ChatSession:
         self.current_ctx_size: int = DEFAULT_CTX_SIZE
         self.last_decision: Decision | None = None
         self.print_fn = print_fn
+        self.repo_graph: RepoGraph | None = None  # built in start(), see DWARV_PLAN.md 11.7
         self.squeeze = SqueezeScheduler()
         self._turns_completed = 0
         self._started = False
@@ -112,7 +122,10 @@ class ChatSession:
         self.monitor.start()
         hw = Hardware(sys_available_mb=self._sys_available_fn())
         choice = choose_model(
-            hw, models=self.models_config.get("models", []), ctx_size=DEFAULT_CTX_SIZE
+            hw,
+            models=self.models_config.get("models", []),
+            ctx_size=DEFAULT_CTX_SIZE,
+            quant_choices=self.quant_choices,
         )
         self.runtime.load(choice.model_id, ctx_size=DEFAULT_CTX_SIZE)
         self.current_model_id = choice.model_id
@@ -133,11 +146,13 @@ class ChatSession:
                 ),
             }
         )
-        snapshot = snapshot_repo_files(self.repo_ctx.root)
-        if snapshot:
-            self.history.append(
-                {"role": "system", "content": f"Current repo file contents:\n\n{snapshot}"}
-            )
+        # DWARV_PLAN.md section 11.7: build the repo's code graph once at
+        # start (cheap -- AST parsing, no LLM calls) rather than dumping
+        # the whole repo into history as a standing system message. Each
+        # turn queries this graph for only what that turn's question
+        # actually needs -- see _turn()'s per-call context, which is
+        # therefore not a permanent, ever-growing part of self.history.
+        self.repo_graph = build_graph(self.repo_ctx.root)
         self.print_fn(choice.explanation)
         self.print_fn(f"Sandbox tier {self.tier}: {self.tier_detail}")
         self._started = True
@@ -183,7 +198,7 @@ class ChatSession:
         if user_text.strip() == "/status":
             return self.status_text()
         self.history.append({"role": "user", "content": user_text})
-        return self._turn()
+        return self._turn(user_text)
 
     def _on_monitor_sample(self, sample) -> None:
         # Downsampled -- ResourceMonitor's default interval is 0.5s, which
@@ -201,6 +216,25 @@ class ChatSession:
             swap_used_mb=sample.swap_used_mb,
         )
 
+    def _messages_with_relevant_context(self, user_text: str) -> list[dict[str, str]]:
+        """DWARV_PLAN.md section 11.7: queries the repo graph for only
+        what `user_text` actually needs and appends it as one extra
+        message for *this* generate() call -- deliberately not written
+        into self.history, so a long conversation doesn't accumulate an
+        ever-growing stack of past turns' context blocks. Re-queried fresh
+        every attempt within a turn (including repair retries) using the
+        turn's original question, not the repair-prompt text, since the
+        underlying task hasn't changed."""
+        if self.repo_graph is None:
+            return self.history
+        context = query_relevant_context(self.repo_graph, user_text)
+        if not context:
+            return self.history
+        return [
+            *self.history,
+            {"role": "system", "content": f"Relevant code for this question:\n\n{context}"},
+        ]
+
     def _log_decision(self, decision: Decision) -> None:
         self.logger.log(
             "decision",
@@ -211,7 +245,7 @@ class ChatSession:
             inputs_snapshot=decision.inputs_snapshot,
         )
 
-    def _turn(self) -> str:
+    def _turn(self, user_text: str) -> str:
         turn_index = self._turns_completed
         self._turns_completed += 1
         self.logger.log("turn_started", "turn_started", turn_index=turn_index)
@@ -284,7 +318,7 @@ class ChatSession:
 
             budget.record_attempt()
             result = self.runtime.generate(
-                self.history,
+                self._messages_with_relevant_context(user_text),
                 GenParams(
                     temperature=temperature,
                     max_tokens=DEFAULT_MAX_TOKENS,

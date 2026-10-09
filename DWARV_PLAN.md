@@ -776,32 +776,107 @@ what the weights themselves cost to hold in memory.
 
 ### 11.6 I-quants as the production weight-compression path
 
-Switch the plan's answer to "how do we shrink a tier's footprint" from
-11.1's local requantization to llama.cpp's own I-quant types
-(`IQ1_S`/`IQ1_M`/`IQ2_XXS`/`IQ2_XS`/`IQ2_S`/`IQ3_XXS`/etc.), the same way
-11.2's Q3_K_M recommendation already worked -- offer the quant level that
-actually fits a given machine's hardware, sourced from what Qwen/community
-quantizers have already published (or produced via `llama-quantize
---imatrix` locally from a cached baseline using a real code calibration
-set, same `llama-quantize`/`llama-imatrix` binaries already confirmed
-present in the bundled archive -- the difference from 11.1 is using
-llama.cpp's own mature I-quant schemes rather than a hand-rolled method).
-Not yet built: extending `configs/models.yaml` and `models/suite.py`'s
-selection logic to this quant family; verifying which I-quant levels are
-actually published for each bundled tier.
+**Verified before building anything**: Qwen's own official GGUF repos
+publish zero I-quant variants for any bundled tier (checked via the HF
+API, not assumed) -- only K-quants (`Q2_K`...`Q8_0`) and `fp16`. Real
+I-quants for all three tiers (`IQ2_M` through `IQ4_XS`/`IQ4_NL`, plus
+`IQ2_S`/`IQ2_XS`/`IQ3_XS` for large) come from `bartowski`'s repos, a
+well-known community quantizer -- every file size in `configs/models.yaml`
+was checked against the HF API's `blobs=true` listing, not quoted from a
+model card.
+
+**Built**: each tier in `configs/models.yaml` gained a `quants:` list
+(level, `hf_repo`, `filename`, `file_size_bytes`), ordered highest-quality
+first. `models/suite.py` gained `estimate_rss_mb()` (file size x a
+conservative 1.67 factor -- the largest of our own 3 real
+measured-RSS/file-size ratios, chosen so the estimate errs toward
+*overestimating*, safer for a resource-aware selector than picking
+something that doesn't actually fit), `find_best_quant_for_tier()`
+(tries the default quant first, then each named quant in quality order,
+returns the first that fits), and `quant_rss_mb()`/`find_quant_entry()`
+as the shared lookups. `choose_model()` gained an optional `quant_choices`
+parameter (model_id -> quant level actually cached) -- omitted, it's
+byte-for-byte today's existing behavior, confirmed by the full existing
+test suite passing unchanged.
+
+`cli.py`'s `setup-offline` is now hardware-aware per tier: if a tier's
+default quant doesn't fit this machine's real available RAM (via the same
+`psutil`-based probe `dwarv doctor` already uses), it downloads the
+highest-quality I-quant that does instead, and records the choice in
+`<cache_dir>/models/quant_choice.json`. `ChatSession` reads that file at
+construction and threads it through both `resolve_model_paths()` (so the
+runtime loads the file that's actually cached) and `choose_model()` (so
+the RSS check reflects reality, not an assumed default) -- the two were
+previously the same path pointing nowhere else; now they agree by
+construction rather than by convention.
+
+**Live-verified, not just estimated**: downloaded the real
+`small`/`IQ2_M` file (bartowski, 601,055,008 bytes) and loaded it with the
+real `llama-server` binary. Real measured RSS after a real generation:
+**766.5MB**. Our conservative estimate: 573.1MB (file size) x 1.67 =
+957.1MB -- a real 24.9% overestimate, exactly the intended direction
+(never underestimates and risks picking something that doesn't fit). The
+factor is a labeled, deliberately-conservative estimate, not a
+measurement, and this is the one data point checking how conservative it
+actually is in practice -- the other 15 quant levels across the three
+tiers remain unmeasured estimates pending further real benchmarking.
+
+14 new tests in `tests/test_model_selection.py` (the estimate function,
+quant lookup, tier-fitting search including the "nothing fits even
+maximally compressed" case, and `choose_model`'s before/after behavior
+with and without `quant_choices` -- confirming it both stays unchanged by
+default and correctly prefers a bigger compressed tier over a smaller
+full-quality one once a quant choice is recorded). Full suite green.
 
 ### 11.7 Graph-based context precision
 
-Build a lightweight code knowledge graph (symbols, references, call/import
-relationships -- function/class definitions and their real file:line
-locations, not embeddings) that `agent/session.py` queries for only the
-specific context a given turn needs, replacing `snapshot_repo_files()`'s
-whole-repo character-budget dump. Not yet built: graph construction
-(likely via Python's `ast` module for a first pass, no new heavy
-dependency), the query interface the agent loop calls per turn, and
+**Built.** `repo/graph.py`: `build_graph(root)` walks `.py` files via the
+stdlib `ast` module (no new dependency), extracting every function/class
+as a `Symbol` (id, kind, name, file, line range, real source text) plus a
+name-based call graph (`calls`/`called_by`, both directions). Stated
+honestly in the module's own docstring as a real simplification, not
+hidden as precise: name-based matching, not type-resolved static
+analysis, so two unrelated functions sharing a name are treated as one
+node -- same MVP-scale honesty standard `snapshot_repo_files()` itself
+was documented with.
+
+`query_relevant_context(graph, query_text, max_total_chars)`: matches
+symbol names mentioned in the query (exact, case-sensitive -- precise and
+citable rather than fuzzy/embedding-based, matching the Graphify-inspired
+goal), includes each match's real source plus its immediate
+callers/callees, and falls back to a table-of-contents (signatures only,
+no bodies) when nothing matches, rather than silence or the old
+whole-repo dump. Same character-budget bound `snapshot_repo_files()` had.
+
+**Wired into `agent/session.py`**: `start()` builds the graph once (cheap
+-- AST parsing, no LLM call) instead of injecting a static whole-repo
+snapshot into history. `_turn()` now takes the turn's `user_text` and
+queries the graph fresh on every attempt (including repair retries, using
+the turn's original question rather than the repair-prompt text, since
+the task hasn't changed) via a new `_messages_with_relevant_context()`
+helper -- the result is appended only to the message list passed to
+*this* `generate()` call, never written into `self.history`, so a long
+conversation doesn't accumulate an ever-growing stack of past turns'
+context blocks.
+
+**Live-verified against the real Dwarv codebase**, not just the unit
+tests: `build_graph(Path("src/dwarv"))` found 207 real symbols across 38
+real files; querying "can you explain how choose_model works and what
+quant_rss_mb does" correctly returned `quant_rss_mb` together with its
+actual one-hop callees (`estimate_rss_mb`, `find_quant_entry`) -- not
+unrelated code, and a small fraction of the full 38-file tree. 8 new
+tests in `tests/test_graph.py` (symbol/call extraction, source-text
+accuracy, the match-and-expand query behavior, the table-of-contents
+fallback, char-budget enforcement, and that malformed Python in one file
+doesn't crash graph construction for the rest of the repo). Full suite
+green.
+
+**Not yet done**: `snapshot_repo_files()` stays defined and tested (not
+deleted, same "old function stays, new path takes over" pattern as
+`extract_patch()`'s 11.8 migration) but is unused on the live path now;
 honest benchmarking of real token-count reduction and verified-fix-rate
-versus the current snapshot approach on a real multi-file repo (not just
-the Step 10 demo's two-file toy case).
+on a real multi-file repo (not just this session's synthetic/demo repos)
+is real future work, not yet measured.
 
 ### 11.8 Grammar-constrained structured patch generation
 
