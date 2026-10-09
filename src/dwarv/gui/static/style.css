@@ -2,11 +2,12 @@
   --bg: #0b0e14;
   --terminal-bg: #0d1117;
   --bar-bg: #11161f;
-  --panel: #0f141c;
+  --statusbar-bg: #11161f;
   --border: #1d2633;
   --border-bright: #2a3a52;
   --text: #d6e2f0;
   --muted: #5f7390;
+  --dim: #3a4a62;
   --accent: #3b9eff;
   --accent-dim: #1f5fa8;
   --warn: #e0a030;
@@ -36,6 +37,9 @@ body {
   border: 1px solid var(--border-bright);
   border-radius: 10px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 80vh;
   box-shadow:
     0 0 0 1px rgba(59, 158, 255, 0.05),
     0 20px 60px rgba(0, 0, 0, 0.5);
@@ -48,6 +52,7 @@ body {
   padding: 10px 14px;
   background: var(--bar-bg);
   border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
 }
 
 .dot {
@@ -65,28 +70,96 @@ body {
   letter-spacing: 0.02em;
 }
 
-.terminal-body {
-  padding: 20px 24px 28px;
+/* ---- scrolling output: the whole point -- this is meant to feel like a
+   live `tail -f` of a running process, not a webpage with boxed widgets. ---- */
+
+.terminal-output {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px 20px;
+  scroll-behavior: smooth;
 }
 
-.prompt-line {
-  margin: 0 0 20px;
+.line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 1px 0;
   color: var(--text);
 }
 
-.prompt {
+.line--boot {
+  color: var(--text);
+}
+
+.line--boot .prompt {
   color: var(--accent);
   font-weight: 600;
   margin-right: 8px;
+}
+
+.line--info {
+  color: var(--text);
+}
+
+.line--note {
+  color: var(--muted);
+  font-style: italic;
+  margin-bottom: 6px;
+}
+
+.line--sep {
+  color: var(--dim);
+  margin: 10px 0 4px;
+}
+
+.line--event {
+  color: var(--muted);
+}
+
+.line--decision {
+  color: var(--accent);
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.line--decision::before {
+  content: "> ";
+  color: var(--dim);
+}
+
+.line--narration {
+  color: var(--text);
+  margin-left: 2px;
+}
+
+.line--json {
+  color: var(--dim);
+  font-size: 11px;
+  margin-left: 2px;
+  white-space: pre-wrap;
+}
+
+.line--warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.line--violation {
+  color: var(--violation);
+  font-weight: 600;
+}
+
+.cursor-line {
+  display: flex;
+  align-items: center;
 }
 
 .cursor {
   display: inline-block;
   width: 7px;
   height: 14px;
-  margin-left: 6px;
+  margin-left: 2px;
   background: var(--accent);
-  vertical-align: text-bottom;
   animation: blink 1s steps(1) infinite;
 }
 
@@ -101,135 +174,51 @@ body {
   }
 }
 
-h1 {
-  font-size: 16px;
-  margin: 0 0 16px;
-  color: var(--text);
-}
+/* ---- status bar: a persistent bottom line, like a tmux/vim status row ---- */
 
-h2 {
-  font-size: 12px;
-  text-transform: lowercase;
-  letter-spacing: 0.04em;
-  color: var(--accent);
-  margin: 0 0 10px;
-  font-weight: 600;
-}
-
-section {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-left: 2px solid var(--accent-dim);
-  border-radius: 6px;
-  padding: 14px 16px;
-  margin-bottom: 14px;
-}
-
-p {
-  margin: 4px 0;
-}
-
-#explanation {
-  color: var(--muted);
-  font-style: italic;
-}
-
-#flow-nodes {
+.terminal-statusbar {
+  flex: 0 0 auto;
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.flow-node {
-  padding: 4px 10px;
-  border-radius: 4px;
-  border: 1px solid var(--border-bright);
-  background: var(--terminal-bg);
+  align-items: center;
+  gap: 16px;
+  padding: 8px 20px;
+  background: var(--statusbar-bg);
+  border-top: 1px solid var(--border);
   font-size: 11px;
   color: var(--muted);
 }
 
-.flow-node-active {
-  border-color: var(--accent);
+.status-item {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#status-flow {
   color: var(--accent);
-  background: rgba(59, 158, 255, 0.12);
   font-weight: 600;
 }
 
-canvas {
+.status-rss {
+  margin-left: auto;
+}
+
+#rss-chart {
   background: #070a10;
   border: 1px solid var(--border);
-  border-radius: 4px;
-  width: 100%;
-  max-width: 640px;
-  height: 160px;
+  border-radius: 3px;
+  flex: 0 0 auto;
 }
 
-#decision-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: 360px;
-  overflow-y: auto;
-}
-
-.decision {
-  border-bottom: 1px solid var(--border);
-  padding: 8px 0 8px 12px;
-  border-left: 2px solid var(--border-bright);
-}
-
-.decision:last-child {
-  border-bottom: none;
-}
-
-.decision-head {
-  font-weight: 600;
-  font-size: 12px;
-  color: var(--accent);
-}
-
-.decision-head::before {
-  content: "> ";
-  color: var(--muted);
-}
-
-.decision-head.event-budget_warn {
-  color: var(--warn);
-}
-
-.decision-head.event-budget_violation {
-  color: var(--violation);
-}
-
-.decision-narration {
-  color: var(--text);
-  font-size: 12px;
-  margin: 3px 0;
-}
-
-.decision-snapshot {
-  color: var(--muted);
-  font-size: 11px;
-  background: var(--terminal-bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 6px 8px;
-  margin: 4px 0 0;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  font-family: var(--mono);
-}
-
-#decision-list::-webkit-scrollbar {
+.terminal-output::-webkit-scrollbar {
   width: 8px;
 }
 
-#decision-list::-webkit-scrollbar-track {
+.terminal-output::-webkit-scrollbar-track {
   background: var(--terminal-bg);
 }
 
-#decision-list::-webkit-scrollbar-thumb {
+.terminal-output::-webkit-scrollbar-thumb {
   background: var(--border-bright);
   border-radius: 4px;
 }

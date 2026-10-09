@@ -283,7 +283,7 @@ def eval(
     console.print((jsonl_path.parent / "summary.md").read_text(encoding="utf-8"))
 
 
-@app.command()
+@app.command(hidden=True)
 def gui(
     port: int = typer.Option(8765, help="Local port to bind (127.0.0.1 only)."),  # noqa: B008
 ) -> None:

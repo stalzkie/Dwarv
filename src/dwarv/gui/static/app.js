@@ -3,85 +3,93 @@
 // every piece of session data lands on the page only via the DOM text-node
 // API (never HTML-parsing APIs), so a decision's reason/narration/feedback
 // containing literal "<script>...</script>" renders as inert plain text.
+//
+// Everything is driven by one source of truth: the SSE stream
+// (/api/live/stream), which always replays a session's full history before
+// going live -- there is no separate REST fetch duplicating that history,
+// so there is nothing to keep in sync.
 
 const state = {
+  flowLabels: {},
   samples: [],
-  flowData: { nodes: [] },
-  currentFlowNode: null,
 };
 
-function setText(id, text) {
+const output = document.getElementById("terminal-output");
+let cursorLine = null;
+
+function ensureCursor() {
+  if (cursorLine) return cursorLine;
+  cursorLine = document.createElement("div");
+  cursorLine.className = "line cursor-line";
+  const cursor = document.createElement("span");
+  cursor.className = "cursor";
+  cursorLine.appendChild(cursor);
+  output.appendChild(cursorLine);
+  return cursorLine;
+}
+
+function printLine(text, className) {
+  const line = document.createElement("div");
+  line.className = "line " + (className || "line--info");
+  line.textContent = text;
+  const cursor = ensureCursor();
+  output.insertBefore(line, cursor);
+  output.scrollTop = output.scrollHeight;
+  return line;
+}
+
+function printJSON(obj) {
+  if (!obj || Object.keys(obj).length === 0) return;
+  printLine(JSON.stringify(obj, null, 2), "line--json");
+}
+
+function setStatus(id, text) {
   document.getElementById(id).textContent = text;
 }
 
-function el(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text; // never innerHTML
-  return node;
-}
+async function typeBootLine(command, speedMs) {
+  const line = document.createElement("div");
+  line.className = "line line--boot";
+  const prompt = document.createElement("span");
+  prompt.className = "prompt";
+  prompt.textContent = "$";
+  const typed = document.createElement("span");
+  line.appendChild(prompt);
+  line.appendChild(typed);
+  const cursor = ensureCursor();
+  output.insertBefore(line, cursor);
 
-function renderSummary(data) {
-  if (!data || !data.active) {
-    setText("model-summary", "No active session.");
-    setText("explanation", "");
-    setText("sandbox-summary", "");
-    setText("repo-summary", "");
-    return;
-  }
-  setText("model-summary", `Model: ${data.model_id} (ctx ${data.ctx_size})`);
-  setText("explanation", data.explanation || "");
-  setText(
-    "sandbox-summary",
-    `Sandbox tier ${data.sandbox_tier}: ${data.sandbox_tier_detail || ""}`
-  );
-  setText(
-    "repo-summary",
-    `Repo: ${data.repo_root || "unknown"} (test command: ${
-      (data.test_command || []).join(" ") || "none discovered"
-    })`
-  );
-}
-
-function appendDecision(ev) {
-  const list = document.getElementById("decision-list");
-  const item = el("li", "decision");
-  const headClass = "decision-head" + (ev.event ? ` event-${ev.event}` : "");
-  const label = ev.action ? `${ev.event}: ${ev.action} -- ${ev.reason || ""}` : `${ev.event}`;
-  item.appendChild(el("div", headClass, label));
-  if (ev.narration) item.appendChild(el("div", "decision-narration", ev.narration));
-  if (ev.inputs_snapshot) {
-    item.appendChild(el("pre", "decision-snapshot", JSON.stringify(ev.inputs_snapshot, null, 2)));
-  }
-  list.appendChild(item);
-  list.scrollTop = list.scrollHeight;
-  while (list.children.length > 200) {
-    list.removeChild(list.firstChild);
+  for (const ch of command) {
+    typed.textContent += ch;
+    output.scrollTop = output.scrollHeight;
+    await new Promise((resolve) => setTimeout(resolve, speedMs));
   }
 }
 
-function pushSample(ev) {
-  state.samples.push(ev);
-  if (state.samples.length > 200) state.samples.shift();
-  drawChart();
+function pushSample(sample) {
+  state.samples.push(sample);
+  if (state.samples.length > 60) state.samples.shift();
+  drawSparkline();
+  if (typeof sample.server_rss_mb === "number") {
+    const limit = sample.ram_limit_mb ? ` / ${Math.round(sample.ram_limit_mb)}MB` : "";
+    setStatus("status-rss", `rss: ${Math.round(sample.server_rss_mb)}MB${limit}`);
+  }
 }
 
-function drawChart() {
+function drawSparkline() {
   const canvas = document.getElementById("rss-chart");
   const ctx = canvas.getContext("2d");
   const w = canvas.width;
   const h = canvas.height;
   ctx.clearRect(0, 0, w, h);
   if (state.samples.length < 2) return;
-
-  const rssVals = state.samples.map((s) => s.server_rss_mb || 0);
-  const maxVal = Math.max(...rssVals, 1);
+  const vals = state.samples.map((s) => s.server_rss_mb || 0);
+  const maxVal = Math.max(...vals, 1);
   const stepX = w / (state.samples.length - 1);
-
   ctx.strokeStyle = "#3b9eff";
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  rssVals.forEach((v, i) => {
+  vals.forEach((v, i) => {
     const x = i * stepX;
     const y = h - (v / maxVal) * h;
     if (i === 0) ctx.moveTo(x, y);
@@ -90,60 +98,103 @@ function drawChart() {
   ctx.stroke();
 }
 
-function renderFlow() {
-  const container = document.getElementById("flow-nodes");
-  container.textContent = "";
-  for (const node of state.flowData.nodes || []) {
-    const active = node.id === state.currentFlowNode;
-    container.appendChild(el("span", "flow-node" + (active ? " flow-node-active" : ""), node.label || node.id));
-  }
+function flowLabel(id) {
+  return (state.flowLabels[id] || id || "").replace(/_/g, " ");
 }
 
-function handleLiveEvent(ev) {
+function handleEvent(ev) {
+  if (ev.event === "no_active_session") {
+    printLine("No active session.", "line--note");
+    return;
+  }
+  if (ev.event === "session_ended") {
+    printLine("-- session ended --", "line--sep");
+    setStatus("status-flow", "flow: --");
+    return;
+  }
   if (ev.flow_node) {
-    state.currentFlowNode = ev.flow_node;
-    renderFlow();
+    setStatus("status-flow", `flow: ${flowLabel(ev.flow_node)}`);
   }
-  if (ev.event === "decision") appendDecision(ev);
-  else if (ev.event === "monitor_sample") pushSample(ev);
-  else if (ev.event === "budget_warn" || ev.event === "budget_violation" || ev.event === "budget_change") {
-    appendDecision(ev);
-  } else if (ev.event === "model_loaded") {
-    setText("model-summary", `Model: ${ev.model_id} (ctx ${ev.ctx_size})`);
-    setText("explanation", ev.explanation || "");
-  } else if (ev.event === "run_started") {
-    setText("sandbox-summary", `Sandbox tier ${ev.sandbox_tier}: ${ev.sandbox_tier_detail || ""}`);
-    setText(
-      "repo-summary",
-      `Repo: ${ev.repo_root || "unknown"} (test command: ${
-        (ev.test_command || []).join(" ") || "none discovered"
-      })`
-    );
-  }
-}
 
-async function loadSession() {
-  // Only paints the summary fields (model/explanation/sandbox/repo) for an
-  // instant first render -- decisions and resource samples come from
-  // connectLive()'s SSE stream, which always replays the session's full
-  // history before going live. Rendering them here too would double-count
-  // every decision and sample.
-  try {
-    const res = await fetch("/api/session");
-    const data = await res.json();
-    renderSummary(data);
-  } catch {
-    setText("model-summary", "No active session.");
+  switch (ev.event) {
+    case "run_started":
+      printLine(`repo: ${ev.repo_root || "unknown"} (git: ${!!ev.is_git_repo})`, "line--info");
+      printLine(
+        `test command: ${(ev.test_command || []).join(" ") || "none discovered"}`,
+        "line--info"
+      );
+      printLine(`sandbox tier ${ev.sandbox_tier}: ${ev.sandbox_tier_detail || ""}`, "line--info");
+      setStatus("status-tier", `tier: ${ev.sandbox_tier}`);
+      break;
+    case "model_loaded":
+      printLine(`model: ${ev.model_id} (ctx ${ev.ctx_size})`, "line--info");
+      if (ev.explanation) printLine(ev.explanation, "line--note");
+      setStatus("status-model", `model: ${ev.model_id}`);
+      break;
+    case "turn_started":
+      printLine(`-- turn ${ev.turn_index} --`, "line--sep");
+      break;
+    case "patch_proposed":
+      printLine(`patch proposed: ${(ev.files || []).join(", ")}`, "line--event");
+      break;
+    case "verified":
+      printLine(
+        `verified: ${ev.failure_class}${
+          ev.failure_class !== "PASS" && ev.feedback ? " -- " + ev.feedback : ""
+        }`,
+        ev.failure_class === "PASS" ? "line--event" : "line--warn"
+      );
+      break;
+    case "decision":
+      printLine(`${ev.action}: ${ev.reason || ""}`, "line--decision");
+      if (ev.narration) printLine(ev.narration, "line--narration");
+      printJSON(ev.inputs_snapshot);
+      break;
+    case "budget_change":
+      printLine(
+        `budget changed: ${ev.reason} -> ${Math.round(ev.new_ram_limit_mb)}MB`,
+        "line--warn"
+      );
+      break;
+    case "budget_warn":
+      printLine(
+        `budget warning: rss ${Math.round(ev.server_rss_mb || 0)}MB / limit ${Math.round(
+          ev.ram_limit_mb || 0
+        )}MB`,
+        "line--warn"
+      );
+      break;
+    case "budget_violation":
+      printLine(
+        `budget violation: rss ${Math.round(ev.server_rss_mb || 0)}MB / limit ${Math.round(
+          ev.ram_limit_mb || 0
+        )}MB`,
+        "line--violation"
+      );
+      break;
+    case "model_unloaded":
+      printLine(`model unloaded: ${ev.model_id || ""}`, "line--event");
+      break;
+    case "run_finished":
+      printLine(`session finished (${ev.turns_completed || 0} turns)`, "line--event");
+      break;
+    case "monitor_sample":
+      pushSample(ev);
+      break;
+    default:
+      break;
   }
 }
 
 async function loadFlow() {
   try {
     const res = await fetch("/flow.json");
-    state.flowData = await res.json();
-    renderFlow();
+    const data = await res.json();
+    for (const node of data.nodes || []) {
+      state.flowLabels[node.id] = node.label || node.id;
+    }
   } catch {
-    // flow.json missing is non-fatal -- the rest of the panel still works.
+    // flow.json missing is non-fatal -- falls back to raw flow_node ids.
   }
 }
 
@@ -156,14 +207,13 @@ function connectLive() {
     } catch {
       return;
     }
-    if (ev.event === "no_active_session") {
-      renderSummary({ active: false });
-      return;
-    }
-    handleLiveEvent(ev);
+    handleEvent(ev);
   };
 }
 
-loadSession();
-loadFlow();
-connectLive();
+(async function boot() {
+  await typeBootLine("dwarv gui", 28);
+  printLine("connecting to the active session...", "line--event");
+  await loadFlow();
+  connectLive();
+})();
