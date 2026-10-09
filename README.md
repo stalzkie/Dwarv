@@ -59,7 +59,7 @@ A developer-only harness (`dwarv eval`, never the end-user surface) compares Dwa
 
 ## Status
 
-Functional end-to-end through hardware-aware model+quant selection, sandboxed verify-before-apply, the resource-aware policy, structured output, and graph-based context — all live-tested against real models, not just unit-tested against fakes. The optional session-transparency panel (`dwarv gui`, hidden from `--help` by default while the project's focus is resource-awareness rather than UI) is built and tested but not the primary surface. The full statistically-powered internal evaluation has not been run. See `docs/PROGRESS.md` for the step-by-step build log and `docs/DECISIONS.md` for every non-obvious choice and why.
+Functional end-to-end through hardware-aware model+quant selection, GPU offload, sandboxed verify-before-apply, the resource-aware policy, structured output, and graph-based context — all live-tested against real models, not just unit-tested against fakes. `scripts/run_demo.sh` runs the full demo sequence (fix a real failing test, trigger a mid-conversation memory squeeze, prove offline operation, show real internal-eval evidence) against live models end-to-end, repeatedly, not just once. The optional session-transparency panel (`dwarv gui`, hidden from `--help` by default while the project's focus is resource-awareness rather than UI) is built and tested but not the primary surface. The full statistically-powered internal evaluation (all 40 tasks × 3+ seeds × all 3 profiles) has not been run — see [Internal evaluation](#internal-evaluation) for what has. See `docs/PROGRESS.md` for the step-by-step build log and `docs/DECISIONS.md` for every non-obvious choice and why.
 
 ## Limitations
 
