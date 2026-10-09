@@ -61,6 +61,28 @@ def test_build_graph_skips_unparseable_files_without_crashing(tmp_path):
     assert "broken.py" not in graph.file_symbols
 
 
+def test_build_graph_skips_any_directory_with_a_venv_marker(tmp_path):
+    """Real bug found live-testing on this project's own repo: a
+    differently-named virtualenv (here, ".venv_compress", a leftover from
+    an earlier experiment) isn't caught by the exact-name skip list, so
+    build_graph() walked and ast.parse()-ed thousands of real third-party
+    .py files -- a multi-minute hang, confirmed live, and a correctness
+    problem (irrelevant library internals would pollute query results).
+    Every virtualenv carries a pyvenv.cfg marker at its root regardless of
+    directory name; this is the structural check that catches it."""
+    (tmp_path / "app.py").write_text("def ok():\n    pass\n", encoding="utf-8")
+    weird_venv = tmp_path / "some_custom_env_name"
+    weird_venv.mkdir()
+    (weird_venv / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+    (weird_venv / "third_party.py").write_text("def should_be_ignored():\n    pass\n")
+
+    graph = build_graph(tmp_path)
+
+    assert "app.py::ok" in graph.symbols
+    assert "some_custom_env_name/third_party.py::should_be_ignored" not in graph.symbols
+    assert not any("some_custom_env_name" in f for f in graph.file_symbols)
+
+
 def test_query_relevant_context_matches_mentioned_symbol(tmp_path):
     _write_sample_repo(tmp_path)
     graph = build_graph(tmp_path)

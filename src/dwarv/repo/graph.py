@@ -12,6 +12,7 @@ were precise.
 """
 
 import ast
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,6 +25,19 @@ _SKIP_DIR_NAMES = {
     ".pytest_cache",
     ".mypy_cache",
 }
+
+# Found live-testing GPU offload on this repo itself: a differently-named
+# virtualenv (here, ".venv_compress", a leftover from an earlier
+# experiment -- 9,898 real .py files) isn't caught by the exact-name list
+# above, so build_graph() spent minutes ast.parse()-ing third-party
+# torch/transformers code that has nothing to do with the user's actual
+# project -- both a real hang and a correctness problem (the "relevant
+# context" query would surface unrelated library internals). Every
+# virtualenv, regardless of its directory name, has this exact marker
+# file at its root (both ".venv" and ".venv_compress" here have one) --
+# detecting it structurally catches variants no fixed name list can
+# anticipate (".venv311", "env", a custom name, etc.).
+_VENV_MARKER_FILE = "pyvenv.cfg"
 
 
 @dataclass
@@ -45,13 +59,30 @@ class RepoGraph:
     file_symbols: dict[str, list[str]] = field(default_factory=dict)  # file -> symbol ids, in order
 
 
+def _collect_py_files(root: Path) -> list[Path]:
+    """os.walk (not Path.rglob) so unwanted directories -- by name, or by
+    carrying a venv's pyvenv.cfg marker -- are pruned via dirnames[:]
+    *before* os.walk descends into them, instead of walking the whole
+    subtree first and filtering results after. For a large third-party
+    venv (thousands of files, e.g. ".venv_compress" in this very repo)
+    that's the difference between skipping the directory instantly and
+    walking+parsing everything inside it."""
+    py_files: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if d not in _SKIP_DIR_NAMES and not (Path(dirpath) / d / _VENV_MARKER_FILE).exists()
+        ]
+        py_files.extend(Path(dirpath) / f for f in filenames if f.endswith(".py"))
+    return py_files
+
+
 def build_graph(root: Path) -> RepoGraph:
     graph = RepoGraph()
     name_to_ids: dict[str, set[str]] = {}  # bare name -> every symbol id with that name
 
-    for path in sorted(root.rglob("*.py")):
-        if any(part in _SKIP_DIR_NAMES for part in path.relative_to(root).parts):
-            continue
+    for path in sorted(_collect_py_files(root)):
         try:
             source = path.read_text(encoding="utf-8")
             tree = ast.parse(source)
