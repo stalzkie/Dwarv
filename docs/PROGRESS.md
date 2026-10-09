@@ -28,3 +28,13 @@ One entry per step (or sub-step): what was done, what was measured, what is next
 - Added the interfaces given explicitly in the plan as real code: `RuntimeAdapter`/`GenParams`/`GenResult` (`runtime/base.py`), `Result`/`System` (`systems/base.py`), `State` (`types.py`), `Action` (`controller/actions.py`), and the flow graph skeleton (`gui/static/flow.json`).
 - Everything else (Steps 1-11 business logic) is a `NotImplementedError` stub matching the file layout, to be filled in step by step.
 - Next: Step 0 acceptance check (`pip install -e .`, `dwarv doctor`, `pytest`), then Step 1 (offline-ready environment).
+
+### Cross-platform sandboxing + initial commit/CI (2026-10-09)
+- Added the tiered sandbox design (Docker / rlimit+unshare / Windows Job Objects) to the plan and scaffold; `dwarv doctor` now detects and reports Docker presence and the active sandbox tier.
+- Loosened `pyproject.toml` pins to `>=` ranges; set explicit `ruff` lint rules (resolved defaults were pulling in the full rule catalog).
+- Pushed the initial commit to `github.com/stalzkie/Dwarv` (branch `main`); added `.github/workflows/ci.yml` (lint, test matrix across ubuntu/windows/macos x Python 3.10-3.12, build) — first CI run passed in full.
+- Set local (repo-only, not global) git `user.name`/`user.email` from the authenticated `gh` account, since none was configured.
+
+### Product pivot: conversational assistant, not a benchmark harness (2026-10-09)
+- Rewrote `DWARV_PLAN.md` end to end: the product is now a chat-first CLI (`dwarv` with no args) backed by a fixed, bundled 3-model Qwen2.5-Coder suite, with hardware-based model selection narrated to the user (not just logged), repo-aware sandboxed verification (disposable worktree, verify-before-apply), and the old EvalPlus benchmark demoted to an internal eval harness. See `docs/DECISIONS.md` for the full rationale.
+- **Not yet done**: the `src/dwarv` code scaffold still reflects the old benchmark-first layout (`systems/`, `bench/`, `tasks/`, `results/`, `run`/`bench` CLI subcommands). Restructuring the code to match the new plan (`agent/`, `models/`, `repo/`, `eval/`, chat-first `cli.py`) is a separate follow-up, not yet started.

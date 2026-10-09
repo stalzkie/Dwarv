@@ -8,5 +8,5 @@ dist/
 cache/
 .pytest_cache/
 .ruff_cache/
-results/*
-!results/.gitkeep
+eval_results/*
+!eval_results/.gitkeep

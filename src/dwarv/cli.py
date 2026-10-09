@@ -7,7 +7,7 @@ import psutil
 import typer
 from rich.console import Console
 
-app = typer.Typer(name="dwarv", help="Resource-aware, verification-guided local AI controller.")
+app = typer.Typer(name="dwarv", help="A local, conversational coding assistant.")
 console = Console()
 
 
@@ -66,6 +66,19 @@ def _sandbox_tier() -> tuple[int, str]:
     return 3, "Windows Job Object + timeout -- reduced isolation, no rlimit/unshare equivalent"
 
 
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context) -> None:
+    """Running `dwarv` with no subcommand starts a chat session in the current directory."""
+    if ctx.invoked_subcommand is None:
+        chat()
+
+
+@app.command()
+def chat() -> None:
+    """Start a conversational coding session in the current directory. (not yet implemented)"""
+    console.print("[yellow]dwarv chat is not implemented yet (Step 5/6).[/yellow]")
+
+
 @app.command()
 def doctor() -> None:
     """Print OS, CPU, RAM, GPU, Python, llama-server, and sandbox-tier info."""
@@ -88,7 +101,7 @@ def doctor() -> None:
 
 @app.command(name="setup-offline")
 def setup_offline() -> None:
-    """Download models + EvalPlus datasets into ./cache/. (not yet implemented)"""
+    """Download the 3 bundled Qwen2.5-Coder models into ./cache/. (not yet implemented)"""
     console.print("[yellow]dwarv setup-offline is not implemented yet (Step 1).[/yellow]")
 
 
@@ -102,39 +115,15 @@ def check_offline() -> None:
 
 
 @app.command()
-def run() -> None:
-    """Run a single task through a chosen system. (not yet implemented)"""
-    console.print("[yellow]dwarv run is not implemented yet.[/yellow]")
-
-
-@app.command()
-def bench() -> None:
-    """Run the full benchmark harness. (not yet implemented)"""
-    console.print("[yellow]dwarv bench is not implemented yet.[/yellow]")
-
-
-@app.command()
-def demo() -> None:
-    """Run the live terminal demo. (not yet implemented)"""
-    console.print("[yellow]dwarv demo is not implemented yet.[/yellow]")
-
-
-@app.command()
-def profile() -> None:
-    """Measure and record per-model RSS/load-time profiles. (not yet implemented)"""
-    console.print("[yellow]dwarv profile is not implemented yet.[/yellow]")
+def eval() -> None:
+    """Run the internal eval harness (developer tool; never the end-user surface). (not yet implemented)"""
+    console.print("[yellow]dwarv eval is not implemented yet (Step 9, internal only).[/yellow]")
 
 
 @app.command()
 def gui() -> None:
-    """Start the read-only local results/flow dashboard. (not yet implemented)"""
-    console.print("[yellow]dwarv gui is not implemented yet.[/yellow]")
-
-
-@app.command()
-def report() -> None:
-    """Write a static, self-contained HTML report. (not yet implemented)"""
-    console.print("[yellow]dwarv report is not implemented yet.[/yellow]")
+    """Start the optional, read-only session-transparency panel. (not yet implemented)"""
+    console.print("[yellow]dwarv gui is not implemented yet (Step 10A, stretch goal).[/yellow]")
 
 
 if __name__ == "__main__":

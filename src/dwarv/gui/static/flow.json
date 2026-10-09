@@ -1,6 +1,6 @@
 {
   "nodes": [
-    { "id": "task", "label": "Task" },
+    { "id": "user_message", "label": "User message" },
     { "id": "read_resources", "label": "Read resources + budget" },
     { "id": "choose_initial_config", "label": "Choose initial config" },
     { "id": "load_model", "label": "Load model" },
@@ -17,7 +17,7 @@
     { "id": "action_stop_safely", "label": "Stop safely" }
   ],
   "edges": [
-    { "from": "task", "to": "read_resources" },
+    { "from": "user_message", "to": "read_resources" },
     { "from": "read_resources", "to": "choose_initial_config" },
     { "from": "choose_initial_config", "to": "load_model" },
     { "from": "load_model", "to": "generate" },

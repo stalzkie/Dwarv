@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "dwarv"
 version = "0.1.0"
-description = "Resource-aware, verification-guided local AI controller for offline coding tasks."
+description = "A local, conversational coding assistant with a hardware-aware, bundled model suite."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

@@ -1,8 +1,6 @@
 # Dwarv
 
-A resource-aware, verification-guided local AI controller for offline coding tasks.
-
-Given a coding task, the device's **current** resources, and a hard time and RAM budget, Dwarv picks the local execution strategy most likely to produce a **test-verified** solution, and re-decides after each failed verification using both the test feedback and live resource measurements.
+A local, conversational coding assistant — "a local Claude Code" — with a bundled suite of three Qwen2.5-Coder models. At the start of each session Dwarv reads your real CPU/RAM/GPU, picks the model that fits, and says why. When there's something to verify against (your repo's own tests), it checks its work in a disposable copy of your working tree before touching your real files, and retries with the actual failure feedback instead of guessing again blindly. If memory gets tight mid-conversation, it says so and steps down instead of hanging or crashing.
 
 Full build plan: [`DWARV_PLAN.md`](./DWARV_PLAN.md). That file is the project brief — work through it in order, step by step; this README stays a short pointer and gets filled in properly at Step 11.
 
@@ -16,6 +14,13 @@ Scaffolding only. See `docs/PROGRESS.md` for the running log and `docs/DECISIONS
 pip install -e ".[dev,gui]"
 dwarv doctor
 pytest
+```
+
+## Quickstart (once Steps 1-6 are implemented)
+
+```bash
+dwarv setup-offline   # one-time: downloads the 3 bundled models into ./cache/
+dwarv                 # starts a chat session in the current directory
 ```
 
 ## Layout

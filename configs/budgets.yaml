@@ -1,6 +1,7 @@
-# Budget profiles + squeeze schedules (Step 8).
-# MB values must be derived from the measured RSS table in models.yaml,
-# not guessed.
+# warn_fraction/safety_margin/max_reloads_per_turn/sample_interval_s are used live,
+# by Step 5's model choice and Step 7's policy. `profiles` (squeeze schedules) are
+# used only by the Step 9 internal eval harness and the Step 8 demo.
+# MB values must be derived from the measured RSS table in models.yaml, not guessed.
 
 profiles: {}
 # Example shape, to fill in once models.yaml has measured RSS:
@@ -25,5 +26,5 @@ profiles: {}
 
 warn_fraction: 0.10       # headroom below this fraction of the limit -> WARN
 safety_margin: 0.10       # fraction of the limit reserved before choosing a model
-max_reloads_per_task: 2
+max_reloads_per_turn: 2
 sample_interval_s: 0.5
