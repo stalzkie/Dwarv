@@ -125,8 +125,26 @@ def chat() -> None:
     llama_server = _llama_server_path()
     cache_dir = _cache_dir()
     if not llama_server.exists():
-        console.print("[red]llama-server not found -- run `dwarv setup-offline` first.[/red]")
-        raise typer.Exit(code=1)
+        console.print(
+            "[yellow]No bundled models found yet -- `setup-offline` is a one-time "
+            "download (~15GB: llama-server + all 3 models, or less if your hardware "
+            "needs a compressed quant for a tier).[/yellow]"
+        )
+        try:
+            run_now = typer.confirm("Run `dwarv setup-offline` now?", default=True)
+        except Exception:
+            run_now = False  # non-interactive/no stdin -- don't silently start a big download
+        if not run_now:
+            console.print(
+                "[red]Skipped -- run `dwarv setup-offline` yourself, then `dwarv` again.[/red]"
+            )
+            raise typer.Exit(code=1)
+        setup_offline()
+        if not llama_server.exists():
+            console.print(
+                "[red]Setup finished but llama-server is still missing -- see the output above.[/red]"
+            )
+            raise typer.Exit(code=1)
 
     from dwarv.agent.session import run_repl
     from dwarv.runtime.base import RuntimeCrashed
