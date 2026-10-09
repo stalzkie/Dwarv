@@ -582,3 +582,107 @@ Before coding, reply with:
 2. The three models you plan to bundle and their verified file sizes.
 3. Any decision from this file you want the user to override.
 Then proceed with Step 0 without waiting, unless a decision is blocking.
+
+---
+
+## 11. Future work: deeper resource-awareness (post-Step 11)
+
+Steps 0-11 above are complete and shipped (see `docs/PROGRESS.md`). This
+section is the next phase: making Dwarv's existing hardware-aware model
+selection genuinely adaptive, rather than a fixed menu of 3 models at one
+quant level each. Written up per-session as the work is scoped; treat each
+numbered item below as its own future step, same discipline as Section 4
+(real measurements, live-tested, no fabricated numbers).
+
+### 11.1 Local re-quantization: lower a cached model's footprint on-device
+
+**The core idea.** Today each bundled model is downloaded at exactly one
+fixed quant (Q4_K_M). If that doesn't fit a given machine, the only lever
+is switching to a *smaller model* (Step 7's `SWITCH_SMALLER_MODEL`). The
+missing lever: shrink the *same* model further, locally, using the
+`llama-quantize` tool that already ships inside the llama.cpp release
+archive Dwarv already downloads (verified: `llama-b11516-bin-win-cpu-x64.zip`
+contains `llama-quantize.exe` + `llama-quantize-impl.dll` alongside
+`llama-server.exe` -- zero new download needed, it is already on disk after
+every `setup-offline` run today, just never invoked).
+
+This is deliberately **not** "download a different pre-made quant file
+from Hugging Face" -- that only offers whatever discrete levels a publisher
+happened to upload, and costs fresh bandwidth per level. Local
+re-quantization is a real on-device *process*: it runs offline (consistent
+with section 5.1's no-network-after-setup-offline rule), works from
+whatever is already cached, and can target any level llama-quantize
+supports, not just the ones some third party chose to publish.
+
+**Mechanism** (`llama-quantize --allow-requantize <in.gguf> <out.gguf>
+<LEVEL>`, confirmed real CLI per the tool's own README): takes an
+already-quantized GGUF as input instead of requiring the original F16/F32
+checkpoint. Documented tradeoff, to be stated honestly wherever this result
+is surfaced (narration text, `docs/DECISIONS.md`): requantizing from an
+already-quantized source is lossier than quantizing fresh from full
+precision -- real quality cost, not just a disk-size change.
+
+**Build it as:**
+- `models/requantize.py`: `llama_quantize_path(cache_dir)` (locates the
+  binary next to `llama-server`), `requantize(input_path, output_path,
+  target_level, timeout_s)` -- a real subprocess wrapper, not a sandboxed
+  one (this runs Dwarv's own trusted tool against Dwarv's own cached file,
+  not untrusted repo/model content), returning real measured wall time and
+  input/output file sizes.
+- `models/suite.py`: when the hardware-based selector finds that a tier's
+  cached baseline doesn't fit, but a derived lower-quant version of that
+  *same* cached file would, it requantizes once and caches the result
+  (`<filename>.<level>.gguf`) rather than requiring a fresh download or
+  silently falling back to a smaller model.
+- Validate cheaply first: prove the pipeline end-to-end on the smallest
+  real tier (0.5B, ~469MB download) before spending bandwidth/time proving
+  it on anything larger.
+
+### 11.2 Worked example: getting the 32B tier onto a tight machine
+
+Real numbers, not estimates (`huggingface.co/Qwen/Qwen2.5-Coder-32B-Instruct-GGUF`,
+checked via the HF API's `blobs=true` listing):
+
+| Quant | Size | Fits 8GB VRAM + 10.8GB RAM (~18.8GB combined)? |
+|---|---|---|
+| Q8_0 | 32.4 GB | No |
+| Q6_K | 25.0 GB | No |
+| Q5_K_M | 21.7 GB | No |
+| Q4_K_M (today's single fixed level) | 18.5 GB | No safe headroom |
+| Q4_0 | 17.4 GB | Barely, no safe headroom |
+| **Q3_K_M** | **14.8 GB** | **Yes -- ~4GB left for KV cache/OS** |
+| Q2_K | 11.5 GB | Yes, comfortably -- more quality loss |
+
+Q3_K_M is the real target for this machine specifically: the highest
+quality level that leaves genuine headroom once split across GPU VRAM and
+system RAM via `-ngl`. Section 11.1's local requantization is how Dwarv
+gets there generally (works for any tier, any machine) rather than special-
+casing 32B.
+
+### 11.3 Supporting levers (lower priority than 11.1, same phase)
+
+- **Opportunistic GPU offload** (`-ngl`): detect a discrete GPU with real
+  VRAM (NVIDIA via `nvidia-smi` first -- already partially wired for
+  `dwarv doctor`'s display-only `_gpu_summary()`; AMD/Intel detection is a
+  real, documented gap, not faked). No GPU found -> behaves exactly as
+  today, pure CPU. Effective capacity becomes `sys_available_mb +
+  vram_available_mb`, with `-ngl` computed from how many layers fit in
+  VRAM specifically. Confirmed real CUDA/Vulkan/ROCm/SYCL builds exist for
+  the pinned release tag (`b11516`), not just the CPU build Dwarv
+  downloads today.
+- **`setup-offline` downloads the matching llama.cpp build** (CUDA/Vulkan
+  vs CPU) based on what hardware detection finds, so a GPU-less machine
+  never wastes bandwidth on a build it can't use.
+- **Free wins regardless of GPU**: `--flash-attn` and `--cache-type-k/v`
+  (KV-cache quantization) -- real llama.cpp flags, lower RAM at any tier,
+  no accuracy cost for flash-attention and a small, well-understood one for
+  KV-cache quantization.
+- **Structured pruning** (genuinely smaller model via removing whole
+  layers/heads, not zeroing individual weights): kept in the plan, lower
+  priority than the above. Verified why *unstructured* pruning
+  (SparseGPT/Wanda-style) is **not** worth building: GGML has no sparse
+  tensor support, so a zeroed weight costs exactly as much compute/memory
+  as a nonzero one (confirmed directly by llama.cpp's maintainer and an
+  independent contributor's empirical test, `ggml-org/llama.cpp` discussion
+  #521) -- only *structured* pruning (fewer actual parameters) produces a
+  real, measurable benefit under llama.cpp's existing dense kernels.
