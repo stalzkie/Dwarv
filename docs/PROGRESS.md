@@ -56,5 +56,13 @@ One entry per step (or sub-step): what was done, what was measured, what is next
 - **Live-verified on this machine** (not just unit tests): downloaded the real llama-server Windows CPU binary and all 3 real GGUF models to `D:\dwarv-cache` (disk-space override, see decisions doc); ran `dwarv doctor` (detects the real binary + cache dir), `dwarv check-offline` (passed: generated text, zero non-local connections), and a manual load→generate→unload→reload cycle against the real 1.5B model (load 1.89-2.19s, correct code response, no orphaned process afterward, confirmed via `Get-Process`). Measured real RSS for the small model at ctx 4096: ~1727MB peak.
 - Added `tests/test_setup_offline.py` (3 passing tests, fully mocked — no real network/downloads in CI) covering: downloads when missing, skips when already present with matching size, errors cleanly on an unconfigured platform.
 - Validated in a fresh venv: 19 tests pass (3 new), `ruff check`/`format --check` clean.
-- Still open: `medium`/`large` `file_size_bytes`/`measured_rss_mb`/`load_time_s` in `configs/models.yaml` are placeholders until their downloads (kicked off this session, ~4.68GB and ~8.99GB) finish — fill in once complete, then live-test load/generate/unload for those two sizes the same way.
 - Linux/macOS llama-server assets are recorded in `configs/models.yaml` but unverified (no binary downloaded/tested on those OSes yet).
+
+### Medium/large models downloaded and measured (2026-10-09, same session)
+- Both finished downloading and are byte-verified: 7B = 4,683,073,536 bytes; 14B = 8,988,110,272 bytes (both match the Hugging Face file listing exactly).
+- Live-measured RSS/load time at ctx 4096 for all three, now in `configs/models.yaml`:
+  - small: load 1.89s, peak RSS 1727.5MB
+  - medium: load 34.14s, peak RSS 6275.9MB
+  - large: load 68.25s, peak RSS 10427.7MB
+- The 14B measurement ran with only ~6.45GB RAM free against a ~9GB model (confirmed with the user first, given the real risk of disk thrashing) — it worked without crashing (llama.cpp mmaps the GGUF, so pages are file-backed and evictable rather than needing pagefile swap), available RAM dropped to ~296MB at peak, and fully recovered to 10.4GB after a clean `unload()` with no orphaned process. This is itself a real demonstration of the exact resource-pressure scenario Dwarv's policy (Step 7) exists to manage.
+- Step 1 is now fully live-verified end to end for all three bundled models on this machine. Next: Step 5 (`models/suite.choose_model`) can now be built against real `configs/models.yaml` data instead of placeholders.

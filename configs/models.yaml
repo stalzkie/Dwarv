@@ -37,10 +37,12 @@ models:
     filename: qwen2.5-coder-7b-instruct-q4_k_m.gguf
     quant: Q4_K_M
     license: apache-2.0
-    file_size_bytes: null # fill in once the download completes
-    ctx_sizes_tested: []
-    measured_rss_mb: {}
-    load_time_s: {}
+    file_size_bytes: 4683073536
+    ctx_sizes_tested: [4096]
+    measured_rss_mb:
+      4096: 6275.9
+    load_time_s:
+      4096: 34.14
 
   - id: large
     family: Qwen2.5-Coder
@@ -48,7 +50,9 @@ models:
     filename: qwen2.5-coder-14b-instruct-q4_k_m.gguf
     quant: Q4_K_M
     license: apache-2.0
-    file_size_bytes: null # fill in once the download completes
-    ctx_sizes_tested: []
-    measured_rss_mb: {}
-    load_time_s: {}
+    file_size_bytes: 8988110272
+    ctx_sizes_tested: [4096]
+    measured_rss_mb:
+      4096: 10427.7
+    load_time_s:
+      4096: 68.25
