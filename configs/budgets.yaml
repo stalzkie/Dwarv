@@ -1,0 +1,29 @@
+# Budget profiles + squeeze schedules (Step 8).
+# MB values must be derived from the measured RSS table in models.yaml,
+# not guessed.
+
+profiles: {}
+# Example shape, to fill in once models.yaml has measured RSS:
+#
+# profiles:
+#   static_tight:
+#     ram_limit_mb: 0            # constant limit; only small + medium fit
+#     time_limit_s: 0
+#     max_attempts: 0
+#   static_loose:
+#     ram_limit_mb: 0            # constant limit; medium fits comfortably
+#     time_limit_s: 0
+#     max_attempts: 0
+#   squeeze_mid:
+#     ram_limit_mb: 0            # starting (loose) limit
+#     time_limit_s: 0
+#     max_attempts: 0
+#     squeeze:
+#       mode: budget_cut         # budget_cut | competing_process
+#       trigger: { after_attempt: 1 }
+#       new_ram_limit_mb: 0      # tight limit after the cut
+
+warn_fraction: 0.10       # headroom below this fraction of the limit -> WARN
+safety_margin: 0.10       # fraction of the limit reserved before choosing a model
+max_reloads_per_task: 2
+sample_interval_s: 0.5

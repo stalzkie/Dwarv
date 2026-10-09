@@ -1,0 +1,6 @@
+{
+  "seed": null,
+  "source": "evalplus (HumanEval+ / MBPP+)",
+  "task_ids": [],
+  "note": "Fill in during Step 4 with a seeded random sample of 40-60 task ids. Never hand-pick. If results look bad later, create subset_v2.json instead of editing this file."
+}

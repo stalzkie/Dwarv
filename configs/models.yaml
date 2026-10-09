@@ -1,0 +1,13 @@
+# Model registry. Filled in during Step 1 (Offline-ready environment)
+# and Step 3 (measured RSS table).
+#
+# Each entry:
+#   id: short identifier used elsewhere (systems.yaml, controller state)
+#   path: path to the .gguf file under ./cache/models/
+#   family: model family, so only size varies across small/medium/large
+#   quant: quantization (e.g. Q4_K_M)
+#   file_size_mb: verified on disk, not from blog posts
+#   ctx_sizes_tested: list of context sizes this entry has been profiled at
+#   measured_rss_mb: { <ctx_size>: rss_mb } filled in by `dwarv profile`
+#   load_time_s: { <ctx_size>: seconds } filled in by `dwarv profile`
+models: []

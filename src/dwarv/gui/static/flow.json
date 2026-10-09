@@ -1,0 +1,42 @@
+{
+  "nodes": [
+    { "id": "task", "label": "Task" },
+    { "id": "read_resources", "label": "Read resources + budget" },
+    { "id": "choose_initial_config", "label": "Choose initial config" },
+    { "id": "load_model", "label": "Load model" },
+    { "id": "generate", "label": "Generate" },
+    { "id": "verify", "label": "Verify" },
+    { "id": "done", "label": "Done" },
+    { "id": "policy_decides", "label": "Policy decides" },
+    { "id": "action_retry_with_feedback", "label": "Retry with feedback" },
+    { "id": "action_retry_lower_temp", "label": "Retry, lower temp" },
+    { "id": "action_retry_higher_temp", "label": "Retry, higher temp" },
+    { "id": "action_shrink_context", "label": "Shrink context" },
+    { "id": "action_switch_smaller_model", "label": "Smaller model" },
+    { "id": "action_switch_larger_model", "label": "Larger model" },
+    { "id": "action_stop_safely", "label": "Stop safely" }
+  ],
+  "edges": [
+    { "from": "task", "to": "read_resources" },
+    { "from": "read_resources", "to": "choose_initial_config" },
+    { "from": "choose_initial_config", "to": "load_model" },
+    { "from": "load_model", "to": "generate" },
+    { "from": "generate", "to": "verify" },
+    { "from": "verify", "to": "done", "label": "pass" },
+    { "from": "verify", "to": "policy_decides", "label": "fail" },
+    { "from": "policy_decides", "to": "action_retry_with_feedback" },
+    { "from": "policy_decides", "to": "action_retry_lower_temp" },
+    { "from": "policy_decides", "to": "action_retry_higher_temp" },
+    { "from": "policy_decides", "to": "action_shrink_context" },
+    { "from": "policy_decides", "to": "action_switch_smaller_model" },
+    { "from": "policy_decides", "to": "action_switch_larger_model" },
+    { "from": "policy_decides", "to": "action_stop_safely" },
+    { "from": "action_retry_with_feedback", "to": "generate" },
+    { "from": "action_retry_lower_temp", "to": "generate" },
+    { "from": "action_retry_higher_temp", "to": "generate" },
+    { "from": "action_shrink_context", "to": "load_model" },
+    { "from": "action_switch_smaller_model", "to": "load_model" },
+    { "from": "action_switch_larger_model", "to": "load_model" },
+    { "from": "action_stop_safely", "to": "done" }
+  ]
+}

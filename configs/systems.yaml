@@ -1,0 +1,22 @@
+# Baseline/system definitions (Steps 5, 6, 7, 8).
+# All controller thresholds live here; no magic numbers in code.
+
+systems: {}
+# Example shape:
+#
+# systems:
+#   fixed:               # Baseline A
+#     model_id: ""
+#     ctx_size: 0
+#   retry:                # Baseline C
+#     model_id: ""
+#     ctx_size: 0
+#     max_attempts: 0
+#   retry_escalate:        # Baseline C+: retries + escalation, no RAM awareness
+#     max_attempts: 0
+#   dwarv:                 # the Dwarv controller
+#     warn_fraction: 0.10
+#     safety_margin: 0.10
+#     max_reloads_per_task: 2
+#     feedback_signals_enabled: true   # ablation: set false to ignore failure type
+#     resource_signals_enabled: true   # ablation: set false to ignore headroom
