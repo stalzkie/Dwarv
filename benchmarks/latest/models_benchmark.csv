@@ -1,0 +1,4 @@
+model_id,family,quant,file_size_mb,ctx_size,load_time_s,rss_after_load_mb,rss_after_gen_mb,peak_rss_mb,sys_available_mb_after_gen,gen_wall_s,gen_completion_tokens,run_id,os,cpu_logical,cpu_physical,ram_total_mb,ram_available_mb_at_start
+small,Qwen2.5-Coder,Q4_K_M,1065.6,4096,6.03,1716.9,1727.3,1727.3,7558.7,10.28,200,20261009T083427Z,Windows-10-10.0.26200-SP0,12,6,16293.7,9153.0
+medium,Qwen2.5-Coder,Q4_K_M,4466.1,4096,23.55,7443.2,7458.5,7458.5,1777.9,12.05,50,20261009T083427Z,Windows-10-10.0.26200-SP0,12,6,16293.7,9153.0
+large,Qwen2.5-Coder,Q4_K_M,8571.7,4096,86.42,9914.7,9889.6,9965.0,537.0,64.88,142,20261009T083427Z,Windows-10-10.0.26200-SP0,12,6,16293.7,9153.0

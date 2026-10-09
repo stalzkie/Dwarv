@@ -6,6 +6,11 @@
 # llama_cpp pins an exact numbered release (not "latest") per
 # DWARV_PLAN.md's "pin the build" requirement -- llama.cpp's flags/defaults
 # change often between builds.
+#
+# measured_rss_mb / load_time_s come from scripts/benchmark_models.py, a
+# single consistent run (not separate ad-hoc measurements) --
+# see benchmarks/history/20261009T083427Z/ for the full CSV + charts, and
+# benchmarks/README.md for how to reproduce or add a new run.
 
 llama_cpp:
   release_tag: b11516
@@ -27,9 +32,9 @@ models:
     file_size_bytes: 1117320768
     ctx_sizes_tested: [4096]
     measured_rss_mb:
-      4096: 1727.5
+      4096: 1727.3
     load_time_s:
-      4096: 1.89
+      4096: 6.03
 
   - id: medium
     family: Qwen2.5-Coder
@@ -40,9 +45,9 @@ models:
     file_size_bytes: 4683073536
     ctx_sizes_tested: [4096]
     measured_rss_mb:
-      4096: 6275.9
+      4096: 7458.5
     load_time_s:
-      4096: 34.14
+      4096: 23.55
 
   - id: large
     family: Qwen2.5-Coder
@@ -53,6 +58,6 @@ models:
     file_size_bytes: 8988110272
     ctx_sizes_tested: [4096]
     measured_rss_mb:
-      4096: 10427.7
+      4096: 9965.0
     load_time_s:
-      4096: 68.25
+      4096: 86.42

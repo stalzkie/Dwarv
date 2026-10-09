@@ -153,10 +153,15 @@ dwarv/
 ├── eval_tasks/
 │   └── subset_v1.json         # FROZEN EvalPlus task IDs + seed, internal eval only
 ├── eval_results/               # raw JSONL per internal eval run (committed)
+├── benchmarks/                  # model hardware-profiling runs (Step 3), NOT the eval harness above
+│   ├── README.md                 # layout, CSV columns, how to reproduce a run
+│   ├── latest/                    # copy of the most recent run
+│   └── history/<run_id>/          # every run ever taken, kept forever -- CSV + PNG charts + hardware.json
 ├── scripts/                     # thin POSIX convenience wrappers; the real, cross-platform
 │   ├── setup_offline.sh         # entry points are the `dwarv setup-offline` / `dwarv check-offline`
 │   ├── check_offline.sh         # CLI subcommands, which also work unwrapped on Windows
-│   └── run_demo.sh
+│   ├── run_demo.sh
+│   └── benchmark_models.py       # produces benchmarks/ -- not a CLI subcommand, a maintainer tool
 └── tests/
     ├── test_sandbox.py
     ├── test_policy.py
@@ -277,6 +282,7 @@ class RuntimeAdapter(Protocol):
 **Acceptance check**
 - Unit tests in `tests/test_budget.py` cover WARN/VIOLATION/limit-change behavior with a fake monitor.
 - Loading each of the three models shows a plausible RSS in the monitor log; record RSS per (model, ctx) into `configs/models.yaml` — these measured values are what Step 5's model choice and its explanation are built on.
+- Use `scripts/benchmark_models.py` to produce this measurement as a real, reproducible run (CSV + charts) rather than a one-off manual note — see `benchmarks/README.md`. Every run is kept under `benchmarks/history/`, never overwritten; `benchmarks/latest/` always mirrors the most recent one. Re-run it whenever the model suite, quant, or ctx size changes, and keep `configs/models.yaml` pointed at whichever run is current.
 
 ---
 
