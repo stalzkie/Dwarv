@@ -594,7 +594,7 @@ quant level each. Written up per-session as the work is scoped; treat each
 numbered item below as its own future step, same discipline as Section 4
 (real measurements, live-tested, no fabricated numbers).
 
-### 11.1 Local re-quantization: lower a cached model's footprint on-device
+### 11.1 Local re-quantization (research thread, not the production path -- see 11.4)
 
 **The core idea.** Today each bundled model is downloaded at exactly one
 fixed quant (Q4_K_M). If that doesn't fit a given machine, the only lever
@@ -686,3 +686,136 @@ casing 32B.
   independent contributor's empirical test, `ggml-org/llama.cpp` discussion
   #521) -- only *structured* pruning (fewer actual parameters) produces a
   real, measurable benefit under llama.cpp's existing dense kernels.
+
+### 11.4 Our own compression method: real results, and why we pivoted
+
+Built a from-scratch activation-aware quantization method (not an imported
+library) to test whether it preserves quality better than naive
+round-to-nearest (RTN) at the same bit-width: calibrate per-input-channel
+activation magnitude on real code samples, scale weight channels before
+quantizing so rounding error falls more on channels the model barely uses,
+search a small alpha grid per layer (always including alpha=0, i.e. "fall
+back to plain RTN," so the method can never do worse than the baseline for
+a given layer) using calibration-only data. Measured with real perplexity
+on held-out code (`scripts/compression/`), not a proxy claimed without
+evidence.
+
+**Qwen2.5-Coder-0.5B-Instruct, 3-bit, `down_proj` layers:**
+| | Perplexity | vs fp32 |
+|---|---|---|
+| Baseline (fp32) | 1.6074 | -- |
+| Naive RTN | 2.1932 | +36.4% |
+| Ours (activation-aware) | 2.0569 | +28.0% |
+
+A real, validated win at this scale -- 16 of 24 layers chose nonzero
+alpha (scaling helped); the other 8 safely fell back to alpha=0.
+
+**Qwen2.5-Coder-1.5B-Instruct, same method, same bit-width:**
+| | Perplexity | vs fp32 |
+|---|---|---|
+| Baseline (fp32) | 1.6785 | -- |
+| Naive RTN | 2.1036 | +25.3% |
+| Ours (activation-aware) | 2.2731 | +35.4% |
+
+**Did not hold.** Naive RTN degraded *less* at 1.5B than at 0.5B, while
+ours degraded *more* -- the opposite of the smaller-scale result. We did
+not re-tune the method to force a favorable number at this scale -- that
+would be p-hacking the result, not proving it. Honest root-cause
+hypothesis: the alpha-selection criterion (weighted mean-squared
+weight-reconstruction error, using activation magnitude as a static
+per-channel weight) is a *proxy* for what actually matters -- real
+downstream output error -- and it's an imperfect one, apparently more so
+at this scale. A more faithful version would measure real per-layer output
+reconstruction error against actual calibration inputs rather than a
+static weighted-MSE approximation; not yet built.
+
+**Decision**: do not make this method the production compression path.
+llama.cpp's own I-quant family (`IQ2_XS`, `IQ1_S`, etc.) already does
+importance-matrix-guided low-bit quantization, is community-validated
+across many models and scales, and ships in the same release archive we
+already download -- strictly lower-risk than shipping an unproven,
+scale-sensitive method we built ourselves. Section 11.1's local
+requantization work stays as an open research thread (the "fix the proxy
+metric, re-test across scales" path above is the real next step if
+revisited), not something the shipped product depends on.
+
+### 11.5 The pivot: three independent, stackable levers instead of forcing weight compression
+
+Reframing the goal from "compress the weights harder" to "make the model
+do less work, however it's sized" -- three real, separately-buildable
+levers, not one combined technique:
+
+1. **I-quants for weight footprint** (11.6) -- the actual production
+   answer to "fit a bigger model in less RAM." Mature, pre-built,
+   zero new engineering risk.
+2. **Graph-based context precision** (11.7) -- shrinks what goes *into*
+   the model each turn, inspired by Graphify's code-knowledge-graph
+   approach (precise, cited retrieval instead of embedding-based fuzzy
+   search). Directly fixes an already-documented gap: `snapshot_repo_files()`
+   today just stuffs whatever fits a character budget into context (flagged
+   in `docs/DECISIONS.md` as an MVP-scale simplification that "won't scale
+   to a large real codebase").
+3. **Grammar-constrained structured output** (11.8) -- shrinks what the
+   model has to *generate*. Not an integration of TypeSafe's Jev model
+   (that's a separately-trained, non-autoregressive architecture --
+   verified it is not something we can layer onto Qwen2.5-Coder without
+   either using their hosted model directly, unconfirmed whether that's
+   even locally-runnable, or training our own from scratch, which is a
+   research project of its own). What *does* carry over from that idea:
+   forcing structured output via constrained decoding instead of free-form
+   generation-then-parsing -- confirmed real and already in our pinned
+   llama.cpp build (`--grammar`/`--grammar-file`/`--json-schema`), no new
+   download.
+
+Honest scope note: (2) and (3) reduce tokens processed/generated per turn
+-- real speed and KV-cache savings, but KV cache is a few hundred MB to
+low-GB at normal context sizes versus 9-18GB of model weights at the
+large/xl tiers. These levers are genuinely additive with (1), not a
+substitute for it -- "the model does less work" does not by itself shrink
+what the weights themselves cost to hold in memory.
+
+### 11.6 I-quants as the production weight-compression path
+
+Switch the plan's answer to "how do we shrink a tier's footprint" from
+11.1's local requantization to llama.cpp's own I-quant types
+(`IQ1_S`/`IQ1_M`/`IQ2_XXS`/`IQ2_XS`/`IQ2_S`/`IQ3_XXS`/etc.), the same way
+11.2's Q3_K_M recommendation already worked -- offer the quant level that
+actually fits a given machine's hardware, sourced from what Qwen/community
+quantizers have already published (or produced via `llama-quantize
+--imatrix` locally from a cached baseline using a real code calibration
+set, same `llama-quantize`/`llama-imatrix` binaries already confirmed
+present in the bundled archive -- the difference from 11.1 is using
+llama.cpp's own mature I-quant schemes rather than a hand-rolled method).
+Not yet built: extending `configs/models.yaml` and `models/suite.py`'s
+selection logic to this quant family; verifying which I-quant levels are
+actually published for each bundled tier.
+
+### 11.7 Graph-based context precision
+
+Build a lightweight code knowledge graph (symbols, references, call/import
+relationships -- function/class definitions and their real file:line
+locations, not embeddings) that `agent/session.py` queries for only the
+specific context a given turn needs, replacing `snapshot_repo_files()`'s
+whole-repo character-budget dump. Not yet built: graph construction
+(likely via Python's `ast` module for a first pass, no new heavy
+dependency), the query interface the agent loop calls per turn, and
+honest benchmarking of real token-count reduction and verified-fix-rate
+versus the current snapshot approach on a real multi-file repo (not just
+the Step 10 demo's two-file toy case).
+
+### 11.8 Grammar-constrained structured patch generation
+
+Replace free-form generation + `extract_patch()`'s regex-based fence
+parsing with a GBNF grammar (or `--json-schema`) passed to `llama-server`
+that constrains the model's output to the exact patch structure Dwarv
+expects. Confirmed real and already available (`llama-server --help`
+lists `--grammar`/`--grammar-file`/`-j, --json-schema`/`-jf,
+--json-schema-file` in the pinned build). Expected real benefits: fewer
+generated tokens (no prose preamble/postamble around the code -- direct
+speed win, token count drives both time and compute), and "model forgot
+to fence the code" becomes structurally impossible rather than a failure
+mode `extract_patch()` has to detect after the fact. Not yet built: the
+actual grammar/schema definition for Dwarv's patch format, wiring it
+through `runtime/llamacpp.py`'s generate() call, and a real before/after
+comparison (token count, wall time, parse-failure rate) on live model
+output -- this is the next concrete implementation step.

@@ -1,0 +1,41 @@
+{
+  "model": "Qwen/Qwen2.5-Coder-0.5B-Instruct",
+  "bits": 3,
+  "quantized_layers": [
+    "down_proj"
+  ],
+  "n_calib_texts": 7,
+  "n_eval_texts": 3,
+  "baseline_fp32_ppl": 1.607410192489624,
+  "naive_rtn_ppl": 2.1932032108306885,
+  "ours_activation_aware_ppl": 2.0568974018096924,
+  "ours_chosen_alphas": {
+    "model.layers.0.mlp.down_proj": 0.25,
+    "model.layers.1.mlp.down_proj": 0.25,
+    "model.layers.2.mlp.down_proj": 0.25,
+    "model.layers.3.mlp.down_proj": 0.25,
+    "model.layers.4.mlp.down_proj": 0.25,
+    "model.layers.5.mlp.down_proj": 0.25,
+    "model.layers.6.mlp.down_proj": 0.25,
+    "model.layers.7.mlp.down_proj": 0.0,
+    "model.layers.8.mlp.down_proj": 0.0,
+    "model.layers.9.mlp.down_proj": 0.0,
+    "model.layers.10.mlp.down_proj": 0.0,
+    "model.layers.11.mlp.down_proj": 0.0,
+    "model.layers.12.mlp.down_proj": 0.0,
+    "model.layers.13.mlp.down_proj": 0.0,
+    "model.layers.14.mlp.down_proj": 0.0,
+    "model.layers.15.mlp.down_proj": 0.0,
+    "model.layers.16.mlp.down_proj": 0.25,
+    "model.layers.17.mlp.down_proj": 0.25,
+    "model.layers.18.mlp.down_proj": 0.25,
+    "model.layers.19.mlp.down_proj": 0.25,
+    "model.layers.20.mlp.down_proj": 0.25,
+    "model.layers.21.mlp.down_proj": 0.25,
+    "model.layers.22.mlp.down_proj": 0.25,
+    "model.layers.23.mlp.down_proj": 0.25
+  },
+  "naive_degradation_pct": 36.443281315378734,
+  "ours_degradation_pct": 27.963441529749407,
+  "ours_beats_naive": true
+}
