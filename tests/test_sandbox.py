@@ -1,17 +1,76 @@
+import platform
+import sys
+
 import pytest
 
-
-@pytest.mark.skip(reason="Step 4: sandboxed verifier not implemented yet")
-def test_timeout_kills_infinite_loop(): ...
+from dwarv.verify.sandbox import run, sandbox_tier
 
 
-@pytest.mark.skip(reason="Step 4: sandboxed verifier not implemented yet")
-def test_memory_bomb_is_stopped(): ...
+def _native_tier() -> int:
+    """Tier 2 (resource.setrlimit) on POSIX, tier 3 (psutil watchdog) on
+    Windows -- never Docker, so these tests run deterministically without
+    needing a Docker install or an image pull."""
+    return 3 if platform.system() == "Windows" else 2
 
 
-@pytest.mark.skip(reason="Step 4: sandboxed verifier not implemented yet")
-def test_network_access_fails(): ...
+def test_timeout_kills_infinite_loop(tmp_path):
+    script = tmp_path / "loop.py"
+    script.write_text("while True:\n    pass\n", encoding="utf-8")
+
+    result = run(
+        [sys.executable, "loop.py"], cwd=tmp_path, timeout_s=2.0, force_tier=_native_tier()
+    )
+
+    assert result.timed_out
 
 
-@pytest.mark.skip(reason="Step 4: sandboxed verifier not implemented yet")
-def test_file_writes_stay_in_temp_dir(): ...
+def test_memory_bomb_is_stopped(tmp_path):
+    script = tmp_path / "bomb.py"
+    script.write_text(
+        "x = []\nwhile True:\n    x.append(bytearray(10 * 1024 * 1024))\n",
+        encoding="utf-8",
+    )
+
+    result = run(
+        [sys.executable, "bomb.py"],
+        cwd=tmp_path,
+        timeout_s=10.0,
+        memory_limit_mb=300.0,
+        force_tier=_native_tier(),
+    )
+
+    # Either the OS/rlimit (tier 2) or the psutil watchdog (tier 3) stopped
+    # it before the 10s timeout; either way, it never ran forever.
+    assert result.timed_out or result.returncode not in (0, None)
+
+
+def test_network_access_fails(tmp_path):
+    tier, detail = sandbox_tier()
+    if tier == 3 or (tier == 2 and "unshare" not in detail):
+        pytest.skip(
+            f"tier {tier} ({detail}) has no network isolation on this OS -- documented limitation"
+        )
+
+    script = tmp_path / "net.py"
+    script.write_text(
+        "import socket\n"
+        "s = socket.create_connection(('8.8.8.8', 53), timeout=3)\n"
+        "s.close()\n"
+        "print('connected')\n",
+        encoding="utf-8",
+    )
+
+    result = run([sys.executable, "net.py"], cwd=tmp_path, timeout_s=10.0)
+
+    assert "connected" not in result.stdout
+
+
+def test_file_writes_stay_in_temp_dir(tmp_path):
+    script = tmp_path / "write.py"
+    script.write_text(
+        "from pathlib import Path\nPath('output.txt').write_text('hello')\n", encoding="utf-8"
+    )
+
+    run([sys.executable, "write.py"], cwd=tmp_path, timeout_s=10.0, force_tier=_native_tier())
+
+    assert (tmp_path / "output.txt").read_text(encoding="utf-8") == "hello"

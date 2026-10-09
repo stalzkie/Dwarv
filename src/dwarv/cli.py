@@ -13,6 +13,8 @@ import typer
 from rich.console import Console
 
 from dwarv.models.suite import load_models_config, resolve_model_paths
+from dwarv.verify.sandbox import docker_available as _docker_available
+from dwarv.verify.sandbox import sandbox_tier as _sandbox_tier
 
 app = typer.Typer(name="dwarv", help="A local, conversational coding assistant.")
 console = Console()
@@ -46,33 +48,6 @@ def _llama_server_version() -> str:
         return (out.stdout or out.stderr).strip() or "found, version unknown"
     except Exception as exc:
         return f"found but failed to run: {exc}"
-
-
-def _docker_available() -> bool:
-    docker = shutil.which("docker")
-    if not docker:
-        return False
-    try:
-        out = subprocess.run([docker, "info"], capture_output=True, text=True, timeout=5)
-        return out.returncode == 0
-    except Exception:
-        return False
-
-
-def _sandbox_tier() -> tuple[int, str]:
-    """Pick the verifier sandbox tier per DWARV_PLAN.md section 2.3."""
-    if _docker_available():
-        return 1, "Docker (--network none) -- strongest, cross-platform"
-    system = platform.system()
-    if system in ("Linux", "Darwin"):
-        has_unshare = system == "Linux" and shutil.which("unshare") is not None
-        detail = (
-            "resource.setrlimit + unshare -n"
-            if has_unshare
-            else "resource.setrlimit only (no unshare on this OS)"
-        )
-        return 2, detail
-    return 3, "Windows Job Object + timeout -- reduced isolation, no rlimit/unshare equivalent"
 
 
 def _cache_dir() -> Path:
