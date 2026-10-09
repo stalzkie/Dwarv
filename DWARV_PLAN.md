@@ -587,8 +587,9 @@ Then proceed with Step 0 without waiting, unless a decision is blocking.
 
 ## 11. Future work: deeper resource-awareness (post-Step 11)
 
-Steps 0-11 above are complete and shipped (see `docs/PROGRESS.md`). This
-section is the next phase: making Dwarv's existing hardware-aware model
+Steps 0-10A above are complete and shipped (see `docs/PROGRESS.md`); Step
+11 (write-up and cleanup) is still open -- see its own checklist above.
+This section is the next phase: making Dwarv's existing hardware-aware model
 selection genuinely adaptive, rather than a fixed menu of 3 models at one
 quant level each. Written up per-session as the work is scoped; treat each
 numbered item below as its own future step, same discipline as Section 4
