@@ -137,3 +137,7 @@ One entry per step (or sub-step): what was done, what was measured, what is next
 - `docs/EXPERIMENT.md` rewritten with the real protocol, the real decision criteria, and the dry-run results honestly reported as harness validation only -- explicitly not sufficient data to evaluate the hypothesis (needs the full 40-task/3-seed/3-profile protocol, correctly scoped as real future work given actual LLM inference time at that scale).
 - Validated: 70 tests pass (15 new), 1 skipped (unchanged), `ruff check`/`format --check` clean. No orphaned `llama-server` process after either eval run.
 - This completes Step 9. Remaining: Step 10 (demo script polish) and Step 10A (optional GUI stretch goal).
+
+### CI caught a Python 3.10 compatibility bug — fixed (2026-10-09, same session)
+- `eval/harness.py` used `datetime.UTC`, added in Python 3.11 -- broke test *collection* entirely on `ubuntu-latest, py3.10` (`ImportError`) while py3.11/3.12 and all other OSes passed, since `pyproject.toml` declares `requires-python = ">=3.10"` and CI's matrix actually tests that floor. Fixed: `datetime.timezone.utc` (available since Python 3.2). Re-pushed; full matrix green.
+- Fourth and final real bug this session that only the CI matrix (not this single Windows/Python-3.11-dev-venv machine) could have caught -- macOS `RLIMIT_AS`, Ubuntu `unshare` permissions, the Docker-tier dependency gap, and now this Python-version floor mismatch.
