@@ -33,19 +33,40 @@ def docker_available() -> bool:
         return False
 
 
+def unshare_network_available() -> bool:
+    """Whether `unshare -n` actually works here, not just whether the binary
+    exists -- e.g. GitHub Actions' ubuntu-latest runners ship `unshare` but
+    don't permit unprivileged users to create network namespaces with it."""
+    if platform.system() != "Linux" or shutil.which("unshare") is None:
+        return False
+    try:
+        return (
+            subprocess.run(
+                ["unshare", "-n", "--", "true"], capture_output=True, timeout=3
+            ).returncode
+            == 0
+        )
+    except Exception:
+        return False
+
+
 def sandbox_tier() -> tuple[int, str]:
-    """Pick the verifier sandbox tier per DWARV_PLAN.md section 2.3."""
+    """Pick the verifier sandbox tier per DWARV_PLAN.md section 2.3. The
+    '+ unshare -n' suffix in the tier-2 detail string is the only reliable
+    signal that network isolation is actually active on this tier -- callers
+    that care should check for that exact substring, not just "unshare"."""
     if docker_available():
         return 1, "Docker (--network none) -- strongest, cross-platform"
     system = platform.system()
     if system in ("Linux", "Darwin"):
-        has_unshare = system == "Linux" and shutil.which("unshare") is not None
-        detail = (
-            "resource.setrlimit + unshare -n"
-            if has_unshare
-            else "resource.setrlimit only (no unshare on this OS)"
-        )
-        return 2, detail
+        if unshare_network_available():
+            return 2, "resource.setrlimit + unshare -n"
+        if system == "Linux":
+            return (
+                2,
+                "resource.setrlimit only (unshare present but not permitted in this environment)",
+            )
+        return 2, "resource.setrlimit only (no unshare on macOS)"
     return 3, "Windows Job Object + timeout -- reduced isolation, no rlimit/unshare equivalent"
 
 
@@ -99,15 +120,21 @@ def _run_tier2_posix(
 ) -> SandboxResult:
     import resource  # POSIX only; this path never runs on Windows
 
+    is_linux = platform.system() == "Linux"
+
     def _limits() -> None:
-        if memory_limit_mb:
+        # RLIMIT_AS is effectively unusable on macOS: dyld/the shared cache
+        # needs far more virtual address space than Linux's loader even for
+        # a trivial process, so setting a tight RLIMIT_AS here crashes the
+        # child before it can even exec. Linux only.
+        if memory_limit_mb and is_linux:
             limit_bytes = int(memory_limit_mb * 1024 * 1024)
             resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))
         cpu_s = int(timeout_s) + 1
         resource.setrlimit(resource.RLIMIT_CPU, (cpu_s, cpu_s))
 
     full_cmd = cmd
-    if platform.system() == "Linux" and shutil.which("unshare") is not None:
+    if unshare_network_available():
         full_cmd = ["unshare", "-n", "--", *cmd]
 
     try:

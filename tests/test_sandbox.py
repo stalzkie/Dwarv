@@ -46,7 +46,10 @@ def test_memory_bomb_is_stopped(tmp_path):
 
 def test_network_access_fails(tmp_path):
     tier, detail = sandbox_tier()
-    if tier == 3 or (tier == 2 and "unshare" not in detail):
+    network_isolated = (
+        tier == 1 or "+ unshare -n" in detail
+    )  # the exact success marker, not just "unshare"
+    if not network_isolated:
         pytest.skip(
             f"tier {tier} ({detail}) has no network isolation on this OS -- documented limitation"
         )
