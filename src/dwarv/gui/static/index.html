@@ -2,11 +2,35 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>dwarv dashboard</title>
-  <link rel="stylesheet" href="style.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>dwarv -- session transparency</title>
+  <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <p>dwarv gui is not implemented yet (Step 10A).</p>
-  <script src="app.js"></script>
+  <h1>dwarv -- live session</h1>
+
+  <section id="summary">
+    <p id="model-summary">Loading...</p>
+    <p id="explanation"></p>
+    <p id="sandbox-summary"></p>
+    <p id="repo-summary"></p>
+  </section>
+
+  <section id="flow">
+    <h2>Flow</h2>
+    <div id="flow-nodes"></div>
+  </section>
+
+  <section id="chart">
+    <h2>Server RSS (live)</h2>
+    <canvas id="rss-chart" width="640" height="160"></canvas>
+  </section>
+
+  <section id="decisions">
+    <h2>Decisions</h2>
+    <ul id="decision-list"></ul>
+  </section>
+
+  <script src="/app.js"></script>
 </body>
 </html>

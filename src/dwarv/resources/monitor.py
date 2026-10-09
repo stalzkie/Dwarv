@@ -26,6 +26,7 @@ class ResourceMonitor:
         pid_fn: Callable[[], int | None],
         interval_s: float = 0.5,
         buffer_size: int = 7200,
+        on_sample: Callable[[Sample], None] | None = None,
     ):
         self._pid_fn = pid_fn
         self._interval_s = interval_s
@@ -33,6 +34,12 @@ class ResourceMonitor:
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        # Called from the sampling thread after every sample -- e.g. Step
+        # 10A's telemetry hook, so a separate `dwarv gui` process reading the
+        # JSONL log can show a live resource chart. Never required: a
+        # callback that raises is caught and dropped so a logging bug can
+        # never take down the actual resource monitoring it's piggybacking on.
+        self._on_sample = on_sample
 
     def start(self) -> None:
         if self._thread is not None:
@@ -52,6 +59,11 @@ class ResourceMonitor:
             sample = self.sample_once()
             with self._lock:
                 self._buffer.append(sample)
+            if self._on_sample is not None:
+                try:
+                    self._on_sample(sample)
+                except Exception:
+                    pass
             self._stop_event.wait(self._interval_s)
 
     def sample_once(self) -> Sample:

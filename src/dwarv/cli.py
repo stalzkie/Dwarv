@@ -284,9 +284,24 @@ def eval(
 
 
 @app.command()
-def gui() -> None:
-    """Start the optional, read-only session-transparency panel. (not yet implemented)"""
-    console.print("[yellow]dwarv gui is not implemented yet (Step 10A, stretch goal).[/yellow]")
+def gui(
+    port: int = typer.Option(8765, help="Local port to bind (127.0.0.1 only)."),  # noqa: B008
+) -> None:
+    """Start the optional, read-only session-transparency panel (Step 10A).
+    Localhost-only; reads whichever session is currently active in this
+    cache dir, if any -- never starts or controls a session itself."""
+    try:
+        import uvicorn
+    except ImportError as exc:
+        console.print('[red]gui extras not installed -- run `pip install -e ".[gui]"`.[/red]')
+        raise typer.Exit(code=1) from exc
+
+    from dwarv.gui.server import create_app
+
+    log_dir = _cache_dir() / "sessions"
+    url = f"http://127.0.0.1:{port}"
+    console.print(f"[bold]dwarv gui[/bold] -> {url}  (read-only, localhost-only; Ctrl+C to stop)")
+    uvicorn.run(create_app(log_dir), host="127.0.0.1", port=port, log_level="warning")
 
 
 if __name__ == "__main__":

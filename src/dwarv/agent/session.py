@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from pathlib import Path
 from typing import Protocol
 
 from dwarv.agent.prompts import extract_patch, repair_prompt, system_prompt
@@ -20,6 +21,7 @@ from dwarv.resources.monitor import ResourceMonitor
 from dwarv.resources.squeeze import SqueezeEvent, SqueezeScheduler
 from dwarv.runtime.base import GenParams
 from dwarv.runtime.llamacpp import LlamaCppRuntime
+from dwarv.telemetry.logger import EventLogger, NullEventLogger
 from dwarv.types import Decision
 from dwarv.types import State as PolicyState
 from dwarv.verify.failure import FailureClass, classify
@@ -55,7 +57,14 @@ class ChatSession:
         models_config: dict | None = None,
         rss_fn: Callable[[], float] | None = None,
         sys_available_fn: Callable[[], float] | None = None,
+        log_dir: str | Path | None = None,
     ):
+        if log_dir is not None:
+            self.logger = EventLogger(log_dir)
+        elif cache_dir is not None:
+            self.logger = EventLogger(Path(cache_dir) / "sessions")
+        else:
+            self.logger = NullEventLogger()
         self.repo_ctx = detect_repo_context(repo_dir)
         self.models_config = models_config if models_config is not None else load_models_config()
         if runtime is not None:
@@ -63,7 +72,8 @@ class ChatSession:
         else:
             model_paths = _resolve_model_paths(self.models_config, cache_dir)
             self.runtime = LlamaCppRuntime(llama_server_path, model_paths)
-        self.monitor = ResourceMonitor(pid_fn=self.runtime.pid)
+        self._monitor_sample_count = 0
+        self.monitor = ResourceMonitor(pid_fn=self.runtime.pid, on_sample=self._on_monitor_sample)
         # Overridable so tests can simulate resource pressure deterministically
         # (a fake runtime has no real process whose RSS could realistically be
         # squeezed against GB-scale bundled-model numbers); real usage reads
@@ -83,6 +93,16 @@ class ChatSession:
         self._started = False
 
     def start(self) -> None:
+        self.logger.start()
+        self.logger.log(
+            "run_started",
+            "run_started",
+            repo_root=str(self.repo_ctx.root),
+            is_git_repo=self.repo_ctx.is_git_repo,
+            test_command=self.repo_ctx.test_command,
+            sandbox_tier=self.tier,
+            sandbox_tier_detail=self.tier_detail,
+        )
         self.monitor.start()
         hw = Hardware(sys_available_mb=self._sys_available_fn())
         choice = choose_model(
@@ -91,6 +111,14 @@ class ChatSession:
         self.runtime.load(choice.model_id, ctx_size=DEFAULT_CTX_SIZE)
         self.current_model_id = choice.model_id
         self.current_ctx_size = DEFAULT_CTX_SIZE
+        self.logger.log(
+            "model_loaded",
+            "model_loaded",
+            model_id=choice.model_id,
+            ctx_size=DEFAULT_CTX_SIZE,
+            explanation=choice.explanation,
+            sys_available_mb=hw.sys_available_mb,
+        )
         self.history.append(
             {
                 "role": "system",
@@ -109,6 +137,9 @@ class ChatSession:
     def stop(self) -> None:
         self.monitor.stop()
         self.runtime.unload()
+        self.logger.log("model_unloaded", "model_unloaded", model_id=self.current_model_id)
+        self.logger.log("run_finished", "run_finished", turns_completed=self._turns_completed)
+        self.logger.stop()
 
     def schedule_squeeze(
         self,
@@ -146,9 +177,36 @@ class ChatSession:
         self.history.append({"role": "user", "content": user_text})
         return self._turn()
 
+    def _on_monitor_sample(self, sample) -> None:
+        # Downsampled -- ResourceMonitor's default interval is 0.5s, which
+        # would otherwise flood the JSONL log; every 4th sample is ~2s
+        # resolution, plenty for the Step 10A live resource chart.
+        self._monitor_sample_count += 1
+        if self._monitor_sample_count % 4 != 0:
+            return
+        self.logger.log(
+            "monitor_sample",
+            "monitor_sample",
+            server_rss_mb=sample.server_rss_mb,
+            sys_available_mb=sample.sys_available_mb,
+            sys_total_mb=sample.sys_total_mb,
+            swap_used_mb=sample.swap_used_mb,
+        )
+
+    def _log_decision(self, decision: Decision) -> None:
+        self.logger.log(
+            "decision",
+            "decision",
+            action=decision.action.name,
+            reason=decision.reason,
+            narration=decision.narration,
+            inputs_snapshot=decision.inputs_snapshot,
+        )
+
     def _turn(self) -> str:
         turn_index = self._turns_completed
         self._turns_completed += 1
+        self.logger.log("turn_started", "turn_started", turn_index=turn_index)
 
         budget = BudgetManager(
             ram_limit_mb=self._sys_available_fn(),
@@ -167,23 +225,40 @@ class ChatSession:
             squeeze_event = self.squeeze.maybe_fire(turn_index)
             if squeeze_event is not None:
                 budget.set_ram_limit(squeeze_event.new_ram_limit_mb, squeeze_event.reason)
+                self.logger.log(
+                    "budget_change",
+                    "budget_change",
+                    reason=squeeze_event.reason,
+                    new_ram_limit_mb=squeeze_event.new_ram_limit_mb,
+                )
                 self.print_fn(
                     f"(demo) squeeze: {squeeze_event.reason} -- RAM budget cut to "
                     f"{squeeze_event.new_ram_limit_mb:.0f}MB"
                 )
 
-            if budget.check() != BudgetStatus.OK:
+            budget_status = budget.check()
+            if budget_status != BudgetStatus.OK:
                 # Proactive check, run before generating -- catches a squeeze
                 # (or genuine resource pressure) even on a turn that would
                 # otherwise succeed on the first try. Rule 2 (budget shrank)
                 # only ever returns STOP_SAFELY/SHRINK_CONTEXT/
                 # SWITCH_SMALLER_MODEL here, never a retry/escalate action.
+                event = (
+                    "budget_violation" if budget_status == BudgetStatus.VIOLATION else "budget_warn"
+                )
+                self.logger.log(
+                    event,
+                    event,
+                    server_rss_mb=budget.server_rss_mb(),
+                    ram_limit_mb=budget.ram_limit_mb,
+                )
                 decision = decide(
                     self._policy_state(budget, last_failure_class, repeated_same_failure),
                     reloads_used=reloads_used,
                     max_reloads_per_turn=DEFAULT_MAX_RELOADS_PER_TURN,
                 )
                 self.last_decision = decision
+                self._log_decision(decision)
                 self.print_fn(decision.narration)
 
                 if decision.action == Action.STOP_SAFELY:
@@ -211,6 +286,11 @@ class ChatSession:
 
             patches = [make_patch(self.repo_ctx.root, path, content) for path, content in blocks]
             diff_display = "\n".join(p.diff_text for p in patches)
+            self.logger.log(
+                "patch_proposed",
+                "patch_proposed",
+                files=[str(p.file_path) for p in patches],
+            )
 
             if self.repo_ctx.test_command is None:
                 self._apply_for_real(patches)
@@ -218,6 +298,12 @@ class ChatSession:
                 return f"{diff_display}\n\nApplied -- UNVERIFIED (no test command discovered for this repo)."
 
             classified = self._verify_in_worktree(patches, self.repo_ctx.test_command)
+            self.logger.log(
+                "verified",
+                "verified",
+                failure_class=classified.failure_class,
+                feedback=classified.feedback[:2000],
+            )
 
             if classified.failure_class == FailureClass.PASS:
                 self._apply_for_real(patches)
@@ -235,6 +321,7 @@ class ChatSession:
                 max_reloads_per_turn=DEFAULT_MAX_RELOADS_PER_TURN,
             )
             self.last_decision = decision
+            self._log_decision(decision)
             self.print_fn(decision.narration)
 
             if decision.action == Action.STOP_SAFELY:
