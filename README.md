@@ -20,18 +20,28 @@ Every claim below is backed by a real, reproducible measurement — see [Results
 
 ## For judges: setup and demo
 
-### 1. Install
+The short version: **download this repo once, install it once, and `dwarv` then works like any other CLI tool — run from inside whatever project you actually want help with, of any language.** You never touch this repo again after step 2 unless you're updating Dwarv itself.
 
-**Run this from inside *this* repository's own root directory** — the folder containing this README and `pyproject.toml` — not from inside the project you want Dwarv to help with. `pip install -e .` installs *Dwarv itself*; it needs to find Dwarv's own `pyproject.toml` in your current directory, and will fail with an error like `does not appear to be a Python project: neither 'setup.py' nor 'pyproject.toml' found` if run anywhere else. This is a one-time install step and has nothing to do with what kind of project Dwarv can later be pointed at — see step 3.
+### 1. Get the code
 
 ```bash
-cd Dwarv-App-Builders-Hackathon      # this repo's root -- confirm `ls` shows pyproject.toml here
+git clone https://github.com/stalzkie/Dwarv.git
+cd Dwarv
+```
+
+(Or unzip it, if you received this as a zip rather than a git remote — either way, step 2 below needs to run from the folder this produces, the one containing this README and `pyproject.toml`.)
+
+### 2. Install Dwarv itself
+
+**Run this from inside the folder from step 1** — not from inside the project you want Dwarv to help with. `pip install -e .` installs *Dwarv*; it needs to find Dwarv's own `pyproject.toml` in your current directory, and fails with `does not appear to be a Python project: neither 'setup.py' nor 'pyproject.toml' found` if run anywhere else. This is a one-time install and has nothing to do with what kind of project Dwarv can later be pointed at — see step 4.
+
+```bash
 pip install -e ".[dev]"              # add ",gui" too if you also want the optional transparency panel
 ```
 
 Requires Python 3.10+. Works with or without a GPU — a GPU (NVIDIA, via Vulkan) is detected and used automatically when present; everything runs on CPU otherwise, no configuration required either way.
 
-### 2. One-time download
+### 3. One-time download
 
 ```bash
 dwarv setup-offline
@@ -39,14 +49,14 @@ dwarv setup-offline
 
 Downloads `llama-server` and the 3 bundled models (~15GB total) into a local `cache/` directory, plus a small (33MB) GPU-offload binary if it detects an NVIDIA GPU. One-time only — `dwarv` runs fully offline after this.
 
-**Setting up a second device?** Copy the `cache/` folder itself (about 11GB) from a machine where `setup-offline` already ran — over a USB drive, say — rather than re-downloading at a venue. Install Dwarv on the new device as in step 1 above (still from a copy of *this* repo), then point it at the copied cache instead of re-running `setup-offline`:
+**Setting up a second device?** Copy the `cache/` folder itself (about 11GB) from a machine where `setup-offline` already ran — over a USB drive, say — rather than re-downloading at a venue. Repeat steps 1-2 on the new device (clone/unzip, then install), then point it at the copied cache instead of re-running `setup-offline`:
 ```bash
 export DWARV_CACHE_DIR=/path/to/copied/cache     # PowerShell: $env:DWARV_CACHE_DIR = "..."
 ```
 
-### 3. Run it
+### 4. Run it — on any project, anywhere
 
-Once installed (step 1), `dwarv` is a regular command on your PATH — run it from *any* project you want help with, of any language, not just from this repository:
+Once installed (step 2) and downloaded (step 3), `dwarv` is a regular command on your PATH, same as `git` or `node`. You're done with *this* repository — `cd` into any other project and run it there:
 
 ```bash
 cd ~/some-other-project-in-any-language    # the repo you actually want help with
@@ -60,7 +70,7 @@ dwarv doctor           # real hardware detection: CPU/RAM/GPU/sandbox tier, no m
 dwarv check-offline    # proves no non-local network connections happen after setup
 ```
 
-### 4. Run the full scripted demo
+### 5. Run the full scripted demo
 
 ```bash
 scripts/run_demo.sh
