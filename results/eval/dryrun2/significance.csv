@@ -1,0 +1,4 @@
+test,profile,system_a,system_b,n_tasks,both_pass,both_fail,dwarv_only,fixed_only,p_value,significant_at_0.05,metric,mean_dwarv,mean_fixed,statistic
+mcnemar (pass/fail),static_loose,dwarv,fixed,5,4,1,0,0,1.0,False,,,,
+wilcoxon (wall_s),static_loose,dwarv,fixed,5,,,,,0.625,False,wall_s,6.872,7.194,5.0
+wilcoxon (peak_rss_mb),static_loose,dwarv,fixed,5,,,,,0.4375,False,peak_rss_mb,1756.152,1756.265,4.0

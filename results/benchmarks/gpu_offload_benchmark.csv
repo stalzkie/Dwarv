@@ -1,0 +1,13 @@
+model_id,family,quant,file_size_gib,backend,ngl,test,tokens_per_second,gpu,vram_mb,llama_cpp_build
+small,Qwen2.5-Coder-1.5B,Q4_K_M,1.04,vulkan,0,pp128,430.03,NVIDIA GeForce RTX 3050,8192,b11516
+small,Qwen2.5-Coder-1.5B,Q4_K_M,1.04,vulkan,99,pp128,2263.12,NVIDIA GeForce RTX 3050,8192,b11516
+small,Qwen2.5-Coder-1.5B,Q4_K_M,1.04,vulkan,0,tg128,19.54,NVIDIA GeForce RTX 3050,8192,b11516
+small,Qwen2.5-Coder-1.5B,Q4_K_M,1.04,vulkan,99,tg128,163.51,NVIDIA GeForce RTX 3050,8192,b11516
+medium,Qwen2.5-Coder-7B,Q4_K_M,4.36,vulkan,0,pp128,106.61,NVIDIA GeForce RTX 3050,8192,b11516
+medium,Qwen2.5-Coder-7B,Q4_K_M,4.36,vulkan,99,pp128,1076.35,NVIDIA GeForce RTX 3050,8192,b11516
+medium,Qwen2.5-Coder-7B,Q4_K_M,4.36,vulkan,0,tg64,4.55,NVIDIA GeForce RTX 3050,8192,b11516
+medium,Qwen2.5-Coder-7B,Q4_K_M,4.36,vulkan,99,tg64,44.26,NVIDIA GeForce RTX 3050,8192,b11516
+large,Qwen2.5-Coder-14B,IQ2_M,4.98,vulkan,0,pp128,84.38,NVIDIA GeForce RTX 3050,8192,b11516
+large,Qwen2.5-Coder-14B,IQ2_M,4.98,vulkan,99,pp128,564.99,NVIDIA GeForce RTX 3050,8192,b11516
+large,Qwen2.5-Coder-14B,IQ2_M,4.98,vulkan,0,tg64,3.47,NVIDIA GeForce RTX 3050,8192,b11516
+large,Qwen2.5-Coder-14B,IQ2_M,4.98,vulkan,99,tg64,19.16,NVIDIA GeForce RTX 3050,8192,b11516

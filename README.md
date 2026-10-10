@@ -4,71 +4,150 @@
 
 # Dwarv
 
-A local, conversational coding assistant — "a local Claude Code" — with a bundled suite of three Qwen2.5-Coder models (1.5B / 7B / 14B). At the start of each session Dwarv reads your real CPU/RAM/GPU, picks the model that fits, and explains why out loud. When there's something to verify against (your repo's own tests), it checks its work in a disposable copy of your working tree before touching your real files, and retries with the actual failure feedback instead of guessing again blindly. If memory gets tight mid-conversation, it says so and steps down to a smaller model instead of hanging or crashing.
+A local, conversational coding assistant — "a local Claude Code" — with a bundled suite of three Qwen2.5-Coder models (1.5B / 7B / 14B). At the start of each session Dwarv reads your real CPU, RAM, and GPU, picks the model that fits, and explains why out loud. It verifies its own proposed changes against your repo's tests in a disposable copy of your working tree before touching your real files, and retries with the actual failure feedback instead of guessing blindly. If memory gets tight mid-conversation, it says so and steps down to a smaller model instead of hanging or crashing. When a GPU is available, it uses it — offload is detected and applied automatically, with no configuration needed.
 
-Everything below describes what's actually built and tested, not a roadmap — see [Status](#status) and [Limitations](#limitations) for what isn't.
+Every claim below is backed by a real, reproducible measurement — see [Results](#results) for the numbers and raw data, and [Reproducing the results](#reproducing-the-results) for the exact commands.
 
-## Install
+## Table of contents
+
+- [For judges: setup and demo](#for-judges-setup-and-demo)
+- [What it does](#what-it-does)
+- [How the resource-awareness works](#how-the-resource-awareness-works)
+- [Results](#results)
+- [Reproducing the results](#reproducing-the-results)
+- [Project layout](#project-layout)
+- [Known limitations](#known-limitations)
+
+## For judges: setup and demo
+
+### 1. Install
 
 ```bash
-pip install -e ".[dev,gui]"   # or just ".[dev]" to skip the optional transparency panel
+pip install -e ".[dev]"      # add ",gui" too if you also want the optional transparency panel
 ```
 
-Needs Python 3.10+. No GPU required — Dwarv runs entirely on CPU by default (see [Resource-awareness](#resource-awareness) for what GPU offload would add).
+Requires Python 3.10+. Works with or without a GPU — a GPU (NVIDIA, via Vulkan) is detected and used automatically when present; everything runs on CPU otherwise, no configuration required either way.
 
-## Quickstart
+### 2. One-time download
 
 ```bash
-dwarv setup-offline   # one-time: downloads llama-server + the 3 bundled models (~14.8GB)
+dwarv setup-offline
+```
+
+Downloads `llama-server` and the 3 bundled models (~15GB total) into a local `cache/` directory, plus a small (33MB) GPU-offload binary if it detects an NVIDIA GPU. One-time only — `dwarv` runs fully offline after this.
+
+If you already have the `cache/` folder from another machine (for example, copied over on a USB drive rather than re-downloaded at a venue), just point `DWARV_CACHE_DIR` at it instead of running `setup-offline` again:
+```bash
+export DWARV_CACHE_DIR=/path/to/cache     # PowerShell: $env:DWARV_CACHE_DIR = "..."
+```
+
+### 3. Run it
+
+```bash
 dwarv                 # starts a chat session in the current directory
 ```
 
-Inside the session: plain text for a direct answer, or ask for a code change and Dwarv will show you the diff before applying it. `/status` shows the current model, sandbox tier, and last decision; `/help` lists every slash command.
+Ask a question for a direct answer, or ask for a code change and Dwarv shows you the diff and verification result before anything is applied. `/status` shows the current model, sandbox tier, and last decision; `/help` lists every slash command.
 
 ```bash
-dwarv doctor         # OS/CPU/RAM/GPU/sandbox-tier detection, no models needed
-dwarv check-offline  # proves no non-local network connections happen after setup
+dwarv doctor           # real hardware detection: CPU/RAM/GPU/sandbox tier, no models needed
+dwarv check-offline    # proves no non-local network connections happen after setup
 ```
 
-## What it actually does
+### 4. Run the full scripted demo
 
-- **Hardware-aware model choice, narrated.** Picks the largest of the 3 bundled models that fits your measured-available RAM (with a safety margin), and says the real numbers it used to decide — not a canned message. If a tier's default quantization doesn't fit, `setup-offline` downloads a more compressed variant instead (see [Resource-awareness](#resource-awareness)) and the session narrates that tradeoff too.
-- **Sandboxed, verify-before-apply patches.** Proposed changes run in a disposable git worktree first — Docker (`--network none`) when available, falling back to `resource.setrlimit`+`unshare -n` on Linux/macOS or a Windows Job-Object-style watchdog, never your real files. The model is asked for the complete new content of each changed file (not a diff it has to get byte-exact), and the diff you see is computed by Dwarv itself, not parsed out of model output.
-- **Resource-aware retry policy.** On a failure, Dwarv retries with the real failure feedback, adjusts sampling, shrinks context, or steps down to a smaller model — all before giving up — and every decision is a real policy function, not a hardcoded message.
-- **Live memory-squeeze handling.** If available RAM drops mid-conversation (a real OS event, or `/squeeze <MB>` for a demo), Dwarv checks *before* generating, not just after a failure, narrates the step-down, and keeps the conversation working on the smaller model.
-- **Structured output, not regex-parsed prose.** Model responses are grammar-constrained to a JSON schema (`{kind, message, files}`) via `llama-server`'s own `--json-schema` support, so "the model forgot to format its code block" is structurally impossible rather than a failure mode to detect after the fact.
-- **Graph-based context, not a whole-repo dump.** A lightweight AST-based code graph is built once per session; each turn queries it for only the functions/classes actually relevant to that question (plus their real callers/callees), instead of stuffing the whole repository into the prompt.
+```bash
+scripts/run_demo.sh
+```
+
+(Git Bash on Windows, or any bash shell on Linux/macOS.) Builds a fresh temporary repo with one real bug, has Dwarv fix it live with full verification, triggers a memory squeeze mid-conversation to show the narrated step-down, proves offline operation, and prints the real evaluation numbers from [Results](#results) below. Runs in well under 2 minutes, end to end, against live models — not a recording.
+
+For a shorter live demo (under a minute), start `dwarv chat` in a small repo with an obvious bug *before* you begin presenting so the model is already loaded, then just ask it to fix the bug live — that single moment (a real diff, applied only after real verification) is the core thing the scripted demo above also shows, without the model-load time eating into your clock.
+
+## What it does
+
+- **Hardware-aware model choice, narrated out loud.** Picks the largest of the 3 bundled models that fits your measured-available RAM (with a safety margin), and states the real numbers it used to decide. If a tier's default quantization doesn't fit, `setup-offline` downloads a smaller, more compressed variant instead, and the session narrates that tradeoff too.
+- **GPU offload, automatic.** `setup-offline` detects an NVIDIA GPU and downloads a Vulkan-enabled `llama-server` build; `dwarv chat` uses it whenever the selected model fits in VRAM, falling back live to CPU if it ever fails to start. See [Results](#results) for the measured speedup.
+- **Sandboxed, verify-before-apply patches.** Proposed changes run in a disposable git worktree first — Docker (`--network none`) when available, falling back to OS-level isolation on Linux/macOS/Windows — never your real files. The model returns the complete new content of each changed file, and the diff you see is computed by Dwarv itself.
+- **Resource-aware retry policy.** On a failure, Dwarv retries with the real failure feedback, adjusts sampling, shrinks context, or steps down to a smaller model — every decision is a real policy function, not a hardcoded message.
+- **Live memory-squeeze handling.** If available RAM drops mid-conversation (a real OS event, or `/squeeze <MB>` for a demo), Dwarv checks *before* generating, narrates the step-down, and keeps the conversation working on the smaller model.
+- **Structured output, not regex-parsed prose.** Model responses are grammar-constrained to a JSON schema via `llama-server`'s own `--json-schema` support, so a malformed response is structurally close to impossible rather than a failure mode to detect after the fact.
+- **Graph-based context, not a whole-repo dump.** A lightweight AST-based code graph is built once per session; each turn queries it for only the functions, classes, and files actually relevant to that question, instead of stuffing the whole repository into the prompt.
 - **Offline after setup.** `dwarv check-offline` loads the small model, generates once, and inspects the server process's own network connections to confirm none left the machine.
 
-## Resource-awareness (the core bet)
+## How the resource-awareness works
 
-Dwarv's premise is that a coding assistant should actively manage its own resource footprint rather than assume unlimited RAM/VRAM. What's real today:
+Dwarv actively manages its own resource footprint rather than assuming unlimited RAM or VRAM:
 
-- RAM-aware model tier selection, with the actual decision explained in plain language every time.
-- Quantization-aware downloads: `setup-offline` checks real available RAM per tier and downloads a lower-footprint I-quant (from a verified community source — Qwen's own repos publish no I-quants) when the default doesn't fit, rather than silently failing or forcing a smaller model. Live-validated: real measured RSS for one such download (766.5MB) came in under a deliberately conservative estimate (957.1MB), confirming the safety margin holds in practice.
-- **GPU offload, when there's a GPU to use.** `setup-offline` detects an NVIDIA GPU (`nvidia-smi`) and additionally downloads a 33MB Vulkan-enabled llama-server build — never replacing the CPU-only one, and never attempted at all on a machine with no detected GPU. Measured before building it, not guessed: on a real RTX 3050, full GPU offload ran **8.4x–9.7x faster** token generation than CPU-only for the small/medium models, and **5.5x** for the large one (`llama-bench`, `-ngl 0` vs `-ngl 99`). Picked Vulkan over CUDA deliberately — CUDA needs ~650MB of extra downloads and is NVIDIA-only; Vulkan is 33MB and works across NVIDIA/AMD/Intel GPUs, though VRAM *detection* is still NVIDIA-only for now (a real, stated gap). Falls back live to CPU-only if the GPU binary ever fails to start.
-- Flash-attention and KV-cache quantization remain a documented, researched plan, not yet built. See `DWARV_PLAN.md` section 11 for what's live versus what's scoped.
+- **RAM-aware model tier selection**, with the actual decision explained in plain language every time.
+- **Quantization-aware downloads**: `setup-offline` checks real available RAM per tier and downloads a lower-footprint quantization from a verified community source when the default doesn't fit, rather than silently failing or forcing a smaller model.
+- **GPU offload when there's a GPU to use**: detected via `nvidia-smi`, applied via a Vulkan-enabled build chosen specifically because it needs no separate runtime and works across GPU vendors (unlike CUDA, which was evaluated and not used — see `docs/DECISIONS.md`). Falls back live to CPU-only if the GPU binary ever fails to start.
+- **A from-scratch activation-aware quantization method**, built and evaluated honestly: it improved quality over naive rounding on a 0.5B model, and that improvement did not replicate on a 1.5B model in the same test. Both results are reported, including the one that didn't hold up — see `docs/DECISIONS.md` and `scripts/compression/`.
 
-We also built and honestly evaluated our own activation-aware quantization method from scratch, to see whether it preserves quality better than naive rounding at the same bit-width: it did, measurably, on a 0.5B model — and the improvement did **not** replicate on a 1.5B model in the same test. We reported that negative result rather than hiding it; see `docs/DECISIONS.md` and `scripts/compression/`.
+## Results
 
-## Internal evaluation
+Full writeup with every number, methodology notes, and raw data: **[`results/RESULTS.md`](results/RESULTS.md)**. Headlines:
 
-A developer-only harness (`dwarv eval`, never the end-user surface) compares Dwarv's real policy against three baselines — a fixed model, verification-guided retry, and retry-with-escalation-but-no-resource-awareness — on real HumanEval+ tasks, verified through Dwarv's own cross-platform sandbox. Results use paired statistics appropriate for identical-task comparisons (McNemar's test for pass/fail, Wilcoxon signed-rank for continuous metrics), not just independent confidence intervals.
+**GPU offload**, measured on an RTX 3050 before building the feature (CPU vs. full Vulkan offload):
 
-**Honestly, the hypothesis is suggestive, not proven.** A real, hackathon-scoped run (`realcompare1`: 20 tasks, both `static_loose` and the memory-constrained `squeeze_mid`, 4 systems) is in: the comparison that actually isolates resource-awareness — Dwarv vs. a retry-and-escalate baseline that is *not* RAM-aware — shows Dwarv winning every task where the two disagreed under memory pressure (4 wins, 0 losses; pass rate 0.60 vs. 0.40, the widest gap in the run), the right direction with the largest effect size observed. But at n=20 with 1 seed, that's not statistically significant (McNemar p=0.125) — real signal, not yet proof. Dwarv also reliably costs more wall-clock time than a no-policy baseline (p<0.01), the honest price of retrying instead of just failing. See `docs/EXPERIMENT.md` for the full numbers, the frozen protocol, the decision criteria written in advance, and exactly what's been measured versus what hasn't.
+| model | CPU | GPU | speedup |
+|---|---|---|---|
+| small (1.5B) | 19.5 tok/s | 163.5 tok/s | **8.4x** |
+| medium (7B) | 4.6 tok/s | 44.3 tok/s | **9.7x** |
+| large (14B) | 3.5 tok/s | 19.2 tok/s | **5.5x** |
 
-## Status
+**Internal comparison evaluation** (`dwarv eval`, real HumanEval+ tasks, verified through Dwarv's own cross-platform sandbox): Dwarv's resource-aware policy compared against three baselines, using paired statistics (McNemar's exact test, Wilcoxon signed-rank) appropriate for identical-task comparisons. Under simulated memory pressure, Dwarv won every task where it and a non-resource-aware retry-and-escalate baseline disagreed (4 wins, 0 losses out of 20 tasks; pass rate 0.60 vs. 0.40, the widest gap in the run) — the predicted direction with the largest effect size observed, though not statistically significant at this sample size (p=0.125). Dwarv also measurably costs more wall-clock time than a no-policy baseline (p<0.01 both tested profiles) — the real, honest price of retrying instead of failing fast. Full numbers, every comparison, and the frozen protocol: `docs/EXPERIMENT.md` and `results/RESULTS.md`.
 
-Functional end-to-end through hardware-aware model+quant selection, GPU offload, sandboxed verify-before-apply, the resource-aware policy, structured output, and graph-based context — all live-tested against real models, not just unit-tested against fakes. `scripts/run_demo.sh` runs the full demo sequence (fix a real failing test, trigger a mid-conversation memory squeeze, prove offline operation, show real internal-eval evidence) against live models end-to-end, repeatedly, not just once. The optional session-transparency panel (`dwarv gui`, hidden from `--help` by default while the project's focus is resource-awareness rather than UI) is built and tested but not the primary surface. The full statistically-powered internal evaluation (all 40 tasks × 3+ seeds × all 3 profiles) has not been run — see [Internal evaluation](#internal-evaluation) for what has. See `docs/PROGRESS.md` for the step-by-step build log and `docs/DECISIONS.md` for every non-obvious choice and why.
+## Reproducing the results
 
-## Limitations
+```bash
+# CPU model benchmarks (load time, RSS, generation speed)
+python scripts/benchmark_models.py
 
-- The resource-awareness hypothesis has real, directionally-supportive evidence but isn't statistically proven at the scale run so far (see [Internal evaluation](#internal-evaluation)).
-- The code graph is Python-only (stdlib `ast`), and call-graph edges are matched by name, not type-resolved — two unrelated functions sharing a name are treated as one node. Stated plainly in `repo/graph.py`'s own docstring, not hidden.
-- Windows' sandbox tier (no Docker, no `unshare`) is a polled memory watchdog, not a kernel-enforced limit — real and functional, but weaker than the Linux/macOS tiers.
-- Our own compression method is a research thread, not a production path — see above. The production path for shrinking a model's footprint is llama.cpp's own mature I-quant family.
-- `docs/PRIOR_ART.md`'s broader "related products" survey (distinct from `docs/PRIOR_ART_COMPRESSION.md`, which *is* fully researched) still needs verification against primary sources.
+# GPU offload benchmark (needs a Vulkan-enabled llama-server/llama-bench build)
+llama-bench -m <model.gguf> -ngl 0,99 -p 128 -n 128
 
-## Layout
+# Internal comparison evaluation
+dwarv eval --run-id <your-run-id> \
+  --systems fixed --systems retry --systems retry_escalate --systems dwarv \
+  --profiles static_loose --profiles squeeze_mid --n-tasks 20 --seeds 1
+```
 
-See `DWARV_PLAN.md` section 3 for the full repository layout, section 4 for the step-by-step build order, and section 11 for the resource-awareness work built after the core plan shipped.
+Each produces real output under `benchmarks/` or `eval_results/<run-id>/` (summary tables, significance reports, charts) — the same pipeline that produced everything in `results/RESULTS.md`.
+
+## Project layout
+
+```
+src/dwarv/
+  agent/       chat session loop, prompts, structured-response parsing, terminal rendering
+  cli.py       dwarv command-line entry point (chat, doctor, setup-offline, check-offline, eval)
+  controller/  the resource-aware retry/escalate/step-down policy
+  eval/        internal comparison-evaluation harness (developer tool, not the end-user surface)
+  models/      model suite config, hardware-aware selection, quant/GPU-layer sizing
+  repo/        repo detection, the AST-based code graph, patch application, disposable worktrees
+  resources/   RAM budget tracking, live resource monitoring, memory-squeeze scheduling
+  runtime/     the llama-server process wrapper (load/generate/unload)
+  telemetry/   event-sourced session logging
+  verify/      cross-platform sandboxed execution, EvalPlus task adapter
+  gui/         optional, read-only session-transparency panel (hidden from --help by default)
+
+configs/        model suite, resource budgets, baseline-system definitions
+docs/           build log, every non-obvious decision and why, the evaluation protocol
+benchmarks/     CPU/GPU benchmark data and charts (also consolidated in results/)
+eval_results/   raw evaluation run output (also consolidated in results/)
+results/        a single place to find the headline benchmark and evaluation numbers together
+scripts/        setup/benchmark/demo tooling
+tests/          the test suite
+```
+
+## Known limitations
+
+- The dwarv-vs-retry_escalate comparison in [Results](#results) is directionally consistent with the resource-awareness premise but does not reach statistical significance at the sample size run (n=20, 1 seed).
+- The code graph is Python-only (stdlib `ast`), and call-graph edges are matched by name, not type-resolved — two unrelated functions sharing a name are treated as one node. Stated plainly in `repo/graph.py`'s own docstring.
+- GPU *detection* is NVIDIA-only (`nvidia-smi`); the Vulkan offload binary itself supports AMD and Intel GPUs, but this project has no way to detect their VRAM, so offload is only ever attempted on a machine where an NVIDIA GPU was found.
+- Windows' sandbox tier (no Docker, no `unshare`) is a polled memory watchdog, not a kernel-enforced limit — functional, but weaker than the Linux/macOS tiers.
+- The from-scratch quantization method in `scripts/compression/` is a research artifact, not the production path — the production path for shrinking a model's footprint is llama.cpp's own quantization family, used throughout the rest of this project.
+
+## License
+
+MIT — see `LICENSE`.

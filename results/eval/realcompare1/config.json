@@ -1,0 +1,41 @@
+{
+  "run_id": "realcompare1",
+  "systems": [
+    "fixed",
+    "retry",
+    "retry_escalate",
+    "dwarv"
+  ],
+  "profiles": [
+    "static_loose",
+    "squeeze_mid"
+  ],
+  "task_ids": [
+    "HumanEval/1",
+    "HumanEval/103",
+    "HumanEval/104",
+    "HumanEval/105",
+    "HumanEval/109",
+    "HumanEval/118",
+    "HumanEval/119",
+    "HumanEval/121",
+    "HumanEval/123",
+    "HumanEval/13",
+    "HumanEval/133",
+    "HumanEval/134",
+    "HumanEval/139",
+    "HumanEval/143",
+    "HumanEval/148",
+    "HumanEval/149",
+    "HumanEval/15",
+    "HumanEval/151",
+    "HumanEval/154",
+    "HumanEval/161"
+  ],
+  "seeds": [
+    1
+  ],
+  "ctx_size": 4096,
+  "git_commit": "dbd0b8e5d0e49726c97824f26ffb025066082870",
+  "timestamp": "2026-10-09T18:17:05.551766+00:00"
+}

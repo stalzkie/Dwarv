@@ -1,0 +1,7 @@
+test,profile,system_a,system_b,n_tasks,both_pass,both_fail,dwarv_only,fixed_only,p_value,significant_at_0.05,metric,mean_dwarv,mean_fixed,statistic
+mcnemar (pass/fail),squeeze_mid,dwarv,fixed,20,9,7,3,1,0.625,False,,,,
+wilcoxon (wall_s),squeeze_mid,dwarv,fixed,20,,,,,0.0073,True,wall_s,13.403,6.9,35.0
+wilcoxon (peak_rss_mb),squeeze_mid,dwarv,fixed,20,,,,,0.1126,False,peak_rss_mb,1751.413,1751.249,62.5
+mcnemar (pass/fail),static_loose,dwarv,fixed,20,8,7,3,2,1.0,False,,,,
+wilcoxon (wall_s),static_loose,dwarv,fixed,20,,,,,0.0007,True,wall_s,12.115,6.129,20.0
+wilcoxon (peak_rss_mb),static_loose,dwarv,fixed,20,,,,,0.4524,False,peak_rss_mb,1749.66,1751.297,84.0

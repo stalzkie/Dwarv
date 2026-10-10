@@ -1,0 +1,25 @@
+{
+  "run_id": "dryrun2",
+  "systems": [
+    "fixed",
+    "retry",
+    "retry_escalate",
+    "dwarv"
+  ],
+  "profiles": [
+    "static_loose"
+  ],
+  "task_ids": [
+    "HumanEval/1",
+    "HumanEval/103",
+    "HumanEval/104",
+    "HumanEval/105",
+    "HumanEval/109"
+  ],
+  "seeds": [
+    1
+  ],
+  "ctx_size": 4096,
+  "git_commit": "46084b719b64c0f87f44769ba99d85d55aee387e",
+  "timestamp": "2026-10-09T11:21:22.038276+00:00"
+}

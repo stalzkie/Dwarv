@@ -1,0 +1,6 @@
+| system | profile | n | pass_rate | pass_rate_ci_lo | pass_rate_ci_hi | mean_peak_rss_mb | max_peak_rss_mb | budget_violations | mean_wall_s | mean_attempts |
+|---|---|---|---|---|---|---|---|---|---|---|
+| dwarv | static_loose | 5 | 0.8 | 0.4 | 1.0 | 1756.2 | 1770.2 | 0 | 6.87 | 1.4 |
+| fixed | static_loose | 5 | 0.8 | 0.4 | 1.0 | 1756.3 | 1770.4 | 0 | 7.19 | 1.0 |
+| retry | static_loose | 5 | 0.6 | 0.2 | 1.0 | 1756.5 | 1771.0 | 0 | 11.34 | 1.8 |
+| retry_escalate | static_loose | 5 | 0.8 | 0.4 | 1.0 | 1756.2 | 1770.1 | 0 | 8.11 | 1.4 |
