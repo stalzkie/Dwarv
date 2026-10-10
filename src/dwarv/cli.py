@@ -78,11 +78,31 @@ def _llama_server_version() -> str:
         return f"found but failed to run: {exc}"
 
 
+def _default_cache_dir() -> Path:
+    """A stable, install-location-independent default. Real bug found
+    live: the previous default was Path.cwd() / "cache" -- so `dwarv
+    setup-offline` run from one directory and bare `dwarv` run from
+    another (exactly the "install once, use it from any project"
+    workflow this tool is meant for) silently looked in two different
+    places, and the second one, finding nothing, prompted to re-download
+    ~15GB that had already been downloaded moments earlier. A cache this
+    tool itself manages shouldn't depend on which directory happened to
+    be current when a command was run."""
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return Path(base) / "dwarv"
+    xdg_cache = os.environ.get("XDG_CACHE_HOME")
+    base = Path(xdg_cache) if xdg_cache else Path.home() / ".cache"
+    return base / "dwarv"
+
+
 def _cache_dir() -> Path:
-    """Default ./cache inside the project; DWARV_CACHE_DIR overrides it (e.g. for a
-    disk-constrained dev machine that needs the ~15GB model suite on another drive)."""
+    """DWARV_CACHE_DIR always overrides (e.g. to share one download across
+    machines via USB, or to put the ~15GB model suite on another drive);
+    otherwise a stable per-user location from _default_cache_dir(), never
+    tied to whatever directory a command happened to be run from."""
     override = os.environ.get("DWARV_CACHE_DIR")
-    return Path(override) if override else Path.cwd() / "cache"
+    return Path(override) if override else _default_cache_dir()
 
 
 def _llama_server_asset_key() -> str:

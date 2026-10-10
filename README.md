@@ -47,9 +47,9 @@ Requires Python 3.10+. Works with or without a GPU — a GPU (NVIDIA, via Vulkan
 dwarv setup-offline
 ```
 
-Downloads `llama-server` and the 3 bundled models (~15GB total) into a local `cache/` directory, plus a small (33MB) GPU-offload binary if it detects an NVIDIA GPU. One-time only — `dwarv` runs fully offline after this.
+Downloads `llama-server` and the 3 bundled models (~15GB total) plus a small (33MB) GPU-offload binary if it detects an NVIDIA GPU. One-time only, and stored in a stable per-user location independent of which directory you happen to run commands from — `~/.cache/dwarv` on Linux/macOS, `%LOCALAPPDATA%\dwarv` on Windows — so running `dwarv setup-offline` once and then `dwarv` later from a completely different project directory finds the same download, no extra configuration needed.
 
-**Setting up a second device?** Copy the `cache/` folder itself (about 11GB) from a machine where `setup-offline` already ran — over a USB drive, say — rather than re-downloading at a venue. Repeat steps 1-2 on the new device (clone/unzip, then install), then point it at the copied cache instead of re-running `setup-offline`:
+**Setting up a second device?** Copy that cache folder itself (about 11GB) from a machine where `setup-offline` already ran — over a USB drive, say — into the same stable location on the new device, rather than re-downloading at a venue. Or, if you'd rather keep it somewhere else entirely (a different drive, a shared network location), `DWARV_CACHE_DIR` always overrides the default:
 ```bash
 export DWARV_CACHE_DIR=/path/to/copied/cache     # PowerShell: $env:DWARV_CACHE_DIR = "..."
 ```

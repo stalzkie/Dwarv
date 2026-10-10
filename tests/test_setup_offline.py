@@ -4,9 +4,35 @@ import zipfile
 
 from typer.testing import CliRunner
 
-from dwarv.cli import _extract_archive, _flatten_single_subdir, app
+from dwarv.cli import _cache_dir, _default_cache_dir, _extract_archive, _flatten_single_subdir, app
 
 runner = CliRunner()
+
+
+# --- _cache_dir / _default_cache_dir: real bug found live -- `dwarv
+# setup-offline` run from one directory and bare `dwarv` run from
+# another (the "install once, use it from any project" workflow) used
+# to resolve to two different Path.cwd()-relative caches, so the second
+# command found nothing and prompted to re-download. ---
+
+
+def test_default_cache_dir_is_not_tied_to_cwd(tmp_path, monkeypatch):
+    monkeypatch.delenv("DWARV_CACHE_DIR", raising=False)
+    monkeypatch.chdir(tmp_path)
+    first = _default_cache_dir()
+
+    other_dir = tmp_path / "some_other_project"
+    other_dir.mkdir()
+    monkeypatch.chdir(other_dir)
+    second = _default_cache_dir()
+
+    assert first == second
+    assert str(first.name) == "dwarv"
+
+
+def test_dwarv_cache_dir_env_var_still_overrides_the_default(tmp_path, monkeypatch):
+    monkeypatch.setenv("DWARV_CACHE_DIR", str(tmp_path / "custom"))
+    assert _cache_dir() == tmp_path / "custom"
 
 
 # --- _flatten_single_subdir / _extract_archive: real bug found live on
