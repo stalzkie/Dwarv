@@ -63,7 +63,9 @@ cd ~/some-other-project-in-any-language    # the repo you actually want help wit
 dwarv                                       # starts a chat session there
 ```
 
-Ask a question for a direct answer, or ask for a code change and Dwarv shows you the diff and verification result before anything is applied. `/status` shows the current model, sandbox tier, and last decision; `/help` lists every slash command. Test-command auto-detection currently recognizes Python (`pytest`) and JS/npm (`npm test`) projects; other languages still get code-fix attempts and diffs, just without an automated test run to verify against.
+Ask a question for a direct answer, or ask for a code change and Dwarv shows you the diff and verification result before anything is applied. `/status` shows the current model, sandbox tier, and last decision; `/help` lists every slash command.
+
+Test-command auto-detection currently recognizes Python (`pytest`) and JS/npm (`npm test`) projects. **In a repo where no test command is discoverable, Dwarv shows you the proposed diff but never writes to your files** — with nothing to verify against, applying a change automatically isn't safe, so that decision is left to you.
 
 ```bash
 dwarv doctor           # real hardware detection: CPU/RAM/GPU/sandbox tier, no models needed
@@ -84,7 +86,7 @@ For a shorter live demo (under a minute), start `dwarv chat` in a small repo wit
 
 - **Hardware-aware model choice, narrated out loud.** Picks the largest of the 3 bundled models that fits your measured-available RAM (with a safety margin), and states the real numbers it used to decide. If a tier's default quantization doesn't fit, `setup-offline` downloads a smaller, more compressed variant instead, and the session narrates that tradeoff too.
 - **GPU offload, automatic.** `setup-offline` detects an NVIDIA GPU and downloads a Vulkan-enabled `llama-server` build; `dwarv chat` uses it whenever the selected model fits in VRAM, falling back live to CPU if it ever fails to start. See [Results](#results) for the measured speedup.
-- **Sandboxed, verify-before-apply patches.** Proposed changes run in a disposable git worktree first — Docker (`--network none`) when available, falling back to OS-level isolation on Linux/macOS/Windows — never your real files. The model returns the complete new content of each changed file, and the diff you see is computed by Dwarv itself.
+- **Sandboxed, verify-before-apply patches.** Proposed changes run in a disposable git worktree first — Docker (`--network none`) when available, falling back to OS-level isolation on Linux/macOS/Windows — never your real files. Your real files are only written after the repo's own tests pass against the change; if there's no test command to verify against, Dwarv shows the diff and applies nothing. The model returns the complete new content of each changed file, and the diff you see is computed by Dwarv itself.
 - **Resource-aware retry policy.** On a failure, Dwarv retries with the real failure feedback, adjusts sampling, shrinks context, or steps down to a smaller model — every decision is a real policy function, not a hardcoded message.
 - **Live memory-squeeze handling.** If available RAM drops mid-conversation (a real OS event, or `/squeeze <MB>` for a demo), Dwarv checks *before* generating, narrates the step-down, and keeps the conversation working on the smaller model.
 - **Structured output, not regex-parsed prose.** Model responses are grammar-constrained to a JSON schema via `llama-server`'s own `--json-schema` support, so a malformed response is structurally close to impossible rather than a failure mode to detect after the fact.

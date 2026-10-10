@@ -392,11 +392,25 @@ class ChatSession:
             )
 
             if self.repo_ctx.test_command is None:
-                self._apply_for_real(patches)
+                # CRITICAL FIX -- this branch used to call _apply_for_real()
+                # here, writing straight to the user's real files with zero
+                # verification. Found live: on a real repo with no
+                # discoverable test command, asked a purely diagnostic
+                # question ("identify files with errors"), the model
+                # returned a "patch" with empty content for two unrelated
+                # real files -- and this branch applied it, deleting both,
+                # with no test run and no chance to review first. That
+                # directly contradicts this project's own stated guarantee
+                # ("checks its work... before touching your real files" --
+                # README.md). When there is no way to verify, Dwarv must
+                # never write to real files at all; show the diff and let
+                # the user apply it themselves if it looks right.
                 self.history.append({"role": "assistant", "content": result.text})
                 return (
                     f"{response.message}\n\n{diff_display}\n\n"
-                    "Applied -- UNVERIFIED (no test command discovered for this repo)."
+                    "NOT applied -- no test command discovered for this repo, so there is "
+                    "no way to verify this change. Review the diff above and apply it "
+                    "yourself if it looks right."
                 )
 
             classified = self._verify_in_worktree(patches, self.repo_ctx.test_command)

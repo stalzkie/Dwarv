@@ -165,6 +165,28 @@ def test_proposes_and_applies_a_verified_fix(tmp_path):
     assert (repo / "app.py").read_text(encoding="utf-8") == "def add(a, b):\n    return a + b\n"
 
 
+def test_patch_never_applied_to_real_files_when_no_test_command_exists(tmp_path):
+    """CRITICAL regression test for a real, live incident: on a real repo
+    with no discoverable test command, a purely diagnostic question
+    ("identify files with errors") got a "patch" response back with
+    destructive content, and the old code applied it straight to the
+    user's real files with zero verification -- deleting two real files.
+    This exact code path (test_command is None) had NO test coverage at
+    all before this, since _make_session always sets a real test
+    command. When there is no way to verify, Dwarv must never write to
+    real files, no matter what the model proposes."""
+    destructive = _patch_response("Removing this file.", [("app.py", "")])
+    session, repo = _make_session(tmp_path, [destructive])
+    session.repo_ctx.test_command = None
+    original_content = (repo / "app.py").read_text(encoding="utf-8")
+
+    reply = session.handle_message("identify files with errors")
+
+    assert "not applied" in reply.lower()
+    assert "no test command" in reply.lower()
+    assert (repo / "app.py").read_text(encoding="utf-8") == original_content
+
+
 def test_retries_with_feedback_then_succeeds(tmp_path):
     broken = _patch_response(
         "Attempt 1.", [("app.py", "def add(a, b):\n    return a - b\n")]
@@ -202,7 +224,13 @@ def test_status_reflects_current_model_and_tier(tmp_path):
     assert f"sandbox tier: {session.tier}" in status
 
 
-def test_unverified_apply_when_no_test_command(tmp_path):
+def test_no_test_command_never_applies_real_changes(tmp_path):
+    """This used to assert the opposite -- that an unverifiable patch WAS
+    applied to the real file ("unverified" in the reply, file changed on
+    disk). That was the exact real bug a live incident exposed (see
+    test_patch_never_applied_to_real_files_when_no_test_command_exists):
+    with no way to verify, Dwarv must never write to real files, however
+    plausible-looking the proposed change is."""
     repo = tmp_path / "plain"
     repo.mkdir()
     (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
@@ -215,8 +243,9 @@ def test_unverified_apply_when_no_test_command(tmp_path):
 
     reply = session.handle_message("update x")
 
-    assert "unverified" in reply.lower()
-    assert (repo / "app.py").read_text(encoding="utf-8") == "x = 2\n"
+    assert "not applied" in reply.lower()
+    assert "no test command" in reply.lower()
+    assert (repo / "app.py").read_text(encoding="utf-8") == "x = 1\n"
 
 
 def test_malformed_response_degrades_to_raw_text_without_crashing(tmp_path):
