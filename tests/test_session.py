@@ -111,6 +111,40 @@ def _make_session(tmp_path: Path, responses: list[str]) -> tuple[ChatSession, Pa
     return session, repo
 
 
+def test_non_python_repo_falls_back_to_whole_repo_context(tmp_path):
+    """Real gap found live: the AST-based graph (DWARV_PLAN.md section
+    11.7) is Python-only, so a repo with zero .py files has zero graph
+    symbols -- without a fallback, query_relevant_context() would return
+    "" and the model would get NO code context at all, blind to the
+    actual code, on any JS/Rust/Go/etc. repo. snapshot_repo_files()
+    (the older, language-general dump) must be used instead whenever the
+    graph found nothing to parse."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+    (repo / "app.js").write_text(
+        "function applyDiscount(price, pct) {\n  return price - pct;\n}\n", encoding="utf-8"
+    )
+    (repo / "package.json").write_text('{"name": "demo", "scripts": {"test": "jest"}}\n')
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=repo, check=True)
+
+    session = ChatSession(
+        runtime=FakeRuntime([_direct_answer("looks fine")]),
+        models_config=FAKE_MODELS_CONFIG,
+        repo_dir=str(repo),
+    )
+    session.start()
+    assert session.repo_graph.symbols == {}  # confirms the graph found nothing to parse
+
+    messages = session._messages_with_relevant_context("fix the bug in app.js")
+
+    context_messages = [m["content"] for m in messages if "applyDiscount" in m.get("content", "")]
+    assert context_messages, "the model must still see the real JS source, not nothing"
+
+
 def test_direct_answer_no_code_block(tmp_path):
     session, _repo = _make_session(tmp_path, [_direct_answer("The function looks fine to me.")])
 

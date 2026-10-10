@@ -22,7 +22,7 @@ from dwarv.models.suite import (
     load_quant_choices,
 )
 from dwarv.models.suite import resolve_model_paths as _resolve_model_paths
-from dwarv.repo.context import detect_repo_context
+from dwarv.repo.context import detect_repo_context, snapshot_repo_files
 from dwarv.repo.graph import RepoGraph, build_graph, query_relevant_context
 from dwarv.repo.patch import Patch, apply_patch, make_patch
 from dwarv.repo.worktree import disposable_worktree
@@ -236,7 +236,19 @@ class ChatSession:
         underlying task hasn't changed."""
         if self.repo_graph is None:
             return self.history
-        context = query_relevant_context(self.repo_graph, user_text)
+        if self.repo_graph.symbols:
+            context = query_relevant_context(self.repo_graph, user_text)
+        else:
+            # Real gap found live: the graph is AST-based and Python-only
+            # (see repo/graph.py's own docstring), so a non-Python repo
+            # has zero symbols and would otherwise get zero code context
+            # at all -- the model blind to the actual code, the same
+            # failure already found and fixed for Python repos.
+            # snapshot_repo_files() is the older, language-general dump
+            # this graph was built to replace for Python specifically; it
+            # still works for anything the graph can't parse (JS, Rust,
+            # Go, ...).
+            context = snapshot_repo_files(self.repo_ctx.root)
         if not context:
             return self.history
         return [
