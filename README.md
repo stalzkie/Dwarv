@@ -22,8 +22,11 @@ Every claim below is backed by a real, reproducible measurement — see [Results
 
 ### 1. Install
 
+**Run this from inside *this* repository's own root directory** — the folder containing this README and `pyproject.toml` — not from inside the project you want Dwarv to help with. `pip install -e .` installs *Dwarv itself*; it needs to find Dwarv's own `pyproject.toml` in your current directory, and will fail with an error like `does not appear to be a Python project: neither 'setup.py' nor 'pyproject.toml' found` if run anywhere else. This is a one-time install step and has nothing to do with what kind of project Dwarv can later be pointed at — see step 3.
+
 ```bash
-pip install -e ".[dev]"      # add ",gui" too if you also want the optional transparency panel
+cd Dwarv-App-Builders-Hackathon      # this repo's root -- confirm `ls` shows pyproject.toml here
+pip install -e ".[dev]"              # add ",gui" too if you also want the optional transparency panel
 ```
 
 Requires Python 3.10+. Works with or without a GPU — a GPU (NVIDIA, via Vulkan) is detected and used automatically when present; everything runs on CPU otherwise, no configuration required either way.
@@ -36,18 +39,21 @@ dwarv setup-offline
 
 Downloads `llama-server` and the 3 bundled models (~15GB total) into a local `cache/` directory, plus a small (33MB) GPU-offload binary if it detects an NVIDIA GPU. One-time only — `dwarv` runs fully offline after this.
 
-If you already have the `cache/` folder from another machine (for example, copied over on a USB drive rather than re-downloaded at a venue), just point `DWARV_CACHE_DIR` at it instead of running `setup-offline` again:
+**Setting up a second device?** Copy the `cache/` folder itself (about 11GB) from a machine where `setup-offline` already ran — over a USB drive, say — rather than re-downloading at a venue. Install Dwarv on the new device as in step 1 above (still from a copy of *this* repo), then point it at the copied cache instead of re-running `setup-offline`:
 ```bash
-export DWARV_CACHE_DIR=/path/to/cache     # PowerShell: $env:DWARV_CACHE_DIR = "..."
+export DWARV_CACHE_DIR=/path/to/copied/cache     # PowerShell: $env:DWARV_CACHE_DIR = "..."
 ```
 
 ### 3. Run it
 
+Once installed (step 1), `dwarv` is a regular command on your PATH — run it from *any* project you want help with, of any language, not just from this repository:
+
 ```bash
-dwarv                 # starts a chat session in the current directory
+cd ~/some-other-project-in-any-language    # the repo you actually want help with
+dwarv                                       # starts a chat session there
 ```
 
-Ask a question for a direct answer, or ask for a code change and Dwarv shows you the diff and verification result before anything is applied. `/status` shows the current model, sandbox tier, and last decision; `/help` lists every slash command.
+Ask a question for a direct answer, or ask for a code change and Dwarv shows you the diff and verification result before anything is applied. `/status` shows the current model, sandbox tier, and last decision; `/help` lists every slash command. Test-command auto-detection currently recognizes Python (`pytest`) and JS/npm (`npm test`) projects; other languages still get code-fix attempts and diffs, just without an automated test run to verify against.
 
 ```bash
 dwarv doctor           # real hardware detection: CPU/RAM/GPU/sandbox tier, no models needed
@@ -143,7 +149,7 @@ tests/          the test suite
 ## Known limitations
 
 - The dwarv-vs-retry_escalate comparison in [Results](#results) is directionally consistent with the resource-awareness premise but does not reach statistical significance at the sample size run (n=20, 1 seed).
-- The code graph is Python-only (stdlib `ast`), and call-graph edges are matched by name, not type-resolved — two unrelated functions sharing a name are treated as one node. Stated plainly in `repo/graph.py`'s own docstring.
+- The precise, AST-based code graph (stdlib `ast`) is Python-only, and its call-graph edges are matched by name, not type-resolved — two unrelated functions sharing a name are treated as one node. A repo with no Python files falls back to a simpler whole-file context dump instead of the precise graph, so other languages still get real code context, just without the graph's call-site precision.
 - GPU *detection* is NVIDIA-only (`nvidia-smi`); the Vulkan offload binary itself supports AMD and Intel GPUs, but this project has no way to detect their VRAM, so offload is only ever attempted on a machine where an NVIDIA GPU was found.
 - Windows' sandbox tier (no Docker, no `unshare`) is a polled memory watchdog, not a kernel-enforced limit — functional, but weaker than the Linux/macOS tiers.
 - The from-scratch quantization method in `scripts/compression/` is a research artifact, not the production path — the production path for shrinking a model's footprint is llama.cpp's own quantization family, used throughout the rest of this project.
