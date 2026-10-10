@@ -136,6 +136,28 @@ def _download(url: str, dest: Path, label: str) -> None:
     console.print(f"  {label}: done ({dest.stat().st_size / (1024**2):.0f}MB)")
 
 
+def _flatten_single_subdir(dest_dir: Path) -> None:
+    """Real bug found live on macOS: llama.cpp's .tar.gz releases (macOS
+    and Linux, confirmed via the actual b11516 assets -- macos-arm64,
+    macos-x64, ubuntu-x64, ubuntu-vulkan-x64) wrap every file in one
+    top-level directory (e.g. "llama-b11516/"), unlike the flat Windows
+    .zip release -- so llama-server ended up one level deeper than every
+    exe_path calculation in this module expects, and setup-offline
+    reported it "still missing" even though extraction succeeded.
+    If extraction produced exactly one directory and nothing else at
+    dest_dir's top level, move its contents up and remove the now-empty
+    wrapper -- generic (keys off "is there exactly one subdirectory",
+    not the "llama-bNNNNN" name) so a future release's wrapper name
+    doesn't silently break this again."""
+    entries = list(dest_dir.iterdir())
+    if len(entries) != 1 or not entries[0].is_dir():
+        return
+    wrapper = entries[0]
+    for item in wrapper.iterdir():
+        item.rename(dest_dir / item.name)
+    wrapper.rmdir()
+
+
 def _extract_archive(archive_path: Path, dest_dir: Path, archive_type: str) -> None:
     dest_dir.mkdir(parents=True, exist_ok=True)
     if archive_type == "zip":
@@ -146,6 +168,7 @@ def _extract_archive(archive_path: Path, dest_dir: Path, archive_type: str) -> N
             tf.extractall(dest_dir)
     else:
         raise ValueError(f"unknown archive type {archive_type!r}")
+    _flatten_single_subdir(dest_dir)
 
 
 @app.callback(invoke_without_command=True)

@@ -1,10 +1,87 @@
 import platform
+import tarfile
+import zipfile
 
 from typer.testing import CliRunner
 
-from dwarv.cli import app
+from dwarv.cli import _extract_archive, _flatten_single_subdir, app
 
 runner = CliRunner()
+
+
+# --- _flatten_single_subdir / _extract_archive: real bug found live on
+# macOS -- llama.cpp's .tar.gz releases (confirmed for macOS and Linux,
+# unlike the flat Windows .zip) wrap every file in one top-level
+# directory, so llama-server ended up one level deeper than every
+# exe_path calculation expects, and setup-offline reported it "still
+# missing" even though extraction succeeded. ---
+
+
+def test_flatten_single_subdir_moves_nested_contents_up(tmp_path):
+    wrapper = tmp_path / "llama-b11516"
+    wrapper.mkdir()
+    (wrapper / "llama-server").write_bytes(b"x")
+    (wrapper / "LICENSE").write_bytes(b"x")
+
+    _flatten_single_subdir(tmp_path)
+
+    assert (tmp_path / "llama-server").exists()
+    assert (tmp_path / "LICENSE").exists()
+    assert not wrapper.exists()
+
+
+def test_flatten_single_subdir_leaves_already_flat_dir_alone(tmp_path):
+    (tmp_path / "llama-server").write_bytes(b"x")
+    (tmp_path / "LICENSE").write_bytes(b"x")
+
+    _flatten_single_subdir(tmp_path)
+
+    assert (tmp_path / "llama-server").exists()
+    assert (tmp_path / "LICENSE").exists()
+
+
+def test_flatten_single_subdir_leaves_multiple_top_level_entries_alone(tmp_path):
+    (tmp_path / "some_dir").mkdir()
+    (tmp_path / "some_dir" / "inner").write_bytes(b"x")
+    (tmp_path / "a_loose_file").write_bytes(b"x")
+
+    _flatten_single_subdir(tmp_path)
+
+    assert (tmp_path / "some_dir" / "inner").exists()  # untouched
+    assert (tmp_path / "a_loose_file").exists()
+
+
+def test_extract_archive_tar_gz_with_wrapper_directory_flattens_correctly(tmp_path):
+    """Real reproduction of the exact llama.cpp release archive shape
+    (one top-level "llama-bNNNNN/" directory wrapping everything) --
+    confirmed via the actual b11516 macOS/Linux assets, not assumed."""
+    archive_path = tmp_path / "llama-release.tar.gz"
+    src = tmp_path / "to_archive" / "llama-b11516"
+    src.mkdir(parents=True)
+    (src / "llama-server").write_bytes(b"fake binary")
+    (src / "LICENSE").write_bytes(b"license text")
+    with tarfile.open(archive_path, "w:gz") as tf:
+        tf.add(src, arcname="llama-b11516")
+
+    dest_dir = tmp_path / "extracted"
+    _extract_archive(archive_path, dest_dir, "tar.gz")
+
+    assert (dest_dir / "llama-server").read_bytes() == b"fake binary"
+    assert not (dest_dir / "llama-b11516").exists()
+
+
+def test_extract_archive_zip_flat_layout_is_unaffected(tmp_path):
+    """The Windows .zip releases are already flat -- confirms the
+    flatten step is a correct no-op for that layout, not just untested."""
+    archive_path = tmp_path / "llama-release.zip"
+    with zipfile.ZipFile(archive_path, "w") as zf:
+        zf.writestr("llama-server.exe", "fake binary")
+        zf.writestr("LICENSE", "license text")
+
+    dest_dir = tmp_path / "extracted"
+    _extract_archive(archive_path, dest_dir, "zip")
+
+    assert (dest_dir / "llama-server.exe").read_bytes() == b"fake binary"
 
 
 def _fake_config(model_entries: list[dict]) -> dict:
