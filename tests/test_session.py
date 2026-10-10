@@ -187,6 +187,36 @@ def test_patch_never_applied_to_real_files_when_no_test_command_exists(tmp_path)
     assert (repo / "app.py").read_text(encoding="utf-8") == original_content
 
 
+def test_no_op_patch_identical_to_disk_is_not_a_blank_reply(tmp_path):
+    """Real bug reported live: a read-only question got kind="patch" back
+    whose file content was byte-identical to what was already on disk.
+    Every diff_text is then "" and, combined with an empty message, the
+    entire reply rendered as nothing but a trailing status line -- a
+    blank response to a real question, indistinguishable from a crash."""
+    session, repo = _make_session(tmp_path, [])
+    unchanged = (repo / "app.py").read_text(encoding="utf-8")
+    session.runtime._responses = [_patch_response("", [("app.py", unchanged)])]
+    session.repo_ctx.test_command = None  # the real repo in the incident had none
+
+    reply = session.handle_message("identify files with errors")
+
+    assert reply.strip(), "a turn must never render as blank text"
+    assert "no changes proposed" in reply.lower()
+    assert (repo / "app.py").read_text(encoding="utf-8") == unchanged
+
+
+def test_empty_model_message_falls_back_instead_of_returning_nothing(tmp_path):
+    """Same live incident, the other half: the model can return an empty
+    'message' for a direct_answer, which rendered as a totally blank
+    reply. A turn must always say something."""
+    session, _repo = _make_session(tmp_path, [_direct_answer("")])
+
+    reply = session.handle_message("what does add() do?")
+
+    assert reply.strip(), "a turn must never render as blank text"
+    assert "empty response" in reply.lower()
+
+
 def test_retries_with_feedback_then_succeeds(tmp_path):
     broken = _patch_response(
         "Attempt 1.", [("app.py", "def add(a, b):\n    return a - b\n")]

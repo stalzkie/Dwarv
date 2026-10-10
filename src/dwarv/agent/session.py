@@ -43,6 +43,20 @@ DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_MAX_RELOADS_PER_TURN = 2
 DEFAULT_MAX_TOKENS = 1024
 
+# Found live: the model returned an empty 'message' and a no-op "patch",
+# so a real question got a completely blank reply back -- indistinguishable
+# to the user from a crash or a hang. A turn must never render as nothing.
+_EMPTY_MESSAGE_FALLBACK = (
+    "The model returned an empty response. Try rephrasing the question, "
+    "or run /status to check which model is loaded."
+)
+
+
+def _join_reply(*sections: str) -> str:
+    """Joins reply sections, skipping empty ones -- so an empty model
+    'message' (live-observed) doesn't leave a blank gap above the diff."""
+    return "\n\n".join(s for s in sections if s)
+
 
 class RuntimeLike(Protocol):
     def load(self, model_id: str, ctx_size: int, gpu_layers: int = 0) -> float: ...
@@ -379,12 +393,16 @@ class ChatSession:
 
             if response.kind == "direct_answer" or not response.files:
                 self.history.append({"role": "assistant", "content": result.text})
-                return response.message
+                # Found live: a model can return an empty 'message', which
+                # rendered as a completely blank reply -- the user can't
+                # tell that apart from a crash or a hang. Never return
+                # empty text from a turn.
+                return response.message or _EMPTY_MESSAGE_FALLBACK
 
             patches = [
                 make_patch(self.repo_ctx.root, path, content) for path, content in response.files
             ]
-            diff_display = "\n".join(p.diff_text for p in patches)
+            diff_display = "\n\n".join(p.diff_text for p in patches if p.diff_text)
             self.logger.log(
                 "patch_proposed",
                 "patch_proposed",
@@ -406,11 +424,29 @@ class ChatSession:
                 # never write to real files at all; show the diff and let
                 # the user apply it themselves if it looks right.
                 self.history.append({"role": "assistant", "content": result.text})
-                return (
-                    f"{response.message}\n\n{diff_display}\n\n"
+                if not diff_display:
+                    # Same incident, the other half: the model answered a
+                    # read-only question with kind="patch" whose content was
+                    # byte-identical to what was already on disk, so every
+                    # diff was empty -- and with an empty message too, the
+                    # reply rendered as nothing but a trailing status line
+                    # about a diff that wasn't there. Say what actually
+                    # happened instead. (Only short-circuited here, where no
+                    # verification is possible anyway -- when a test command
+                    # does exist, an unchanged file must still go through
+                    # verification, since "tests still fail" is exactly the
+                    # feedback that drives the retry loop.)
+                    return _join_reply(
+                        response.message,
+                        "No changes proposed -- the model returned the file(s) exactly as "
+                        "they already are on disk, so there is nothing to apply.",
+                    )
+                return _join_reply(
+                    response.message,
+                    diff_display,
                     "NOT applied -- no test command discovered for this repo, so there is "
                     "no way to verify this change. Review the diff above and apply it "
-                    "yourself if it looks right."
+                    "yourself if it looks right.",
                 )
 
             classified = self._verify_in_worktree(patches, self.repo_ctx.test_command)
@@ -424,7 +460,9 @@ class ChatSession:
             if classified.failure_class == FailureClass.PASS:
                 self._apply_for_real(patches)
                 self.history.append({"role": "assistant", "content": result.text})
-                return f"{response.message}\n\n{diff_display}\n\nApplied -- verified (tests pass)."
+                return _join_reply(
+                    response.message, diff_display, "Applied -- verified (tests pass)."
+                )
 
             repeated_same_failure = (
                 repeated_same_failure + 1 if classified.failure_class == last_failure_class else 0
@@ -442,9 +480,11 @@ class ChatSession:
 
             if decision.action == Action.STOP_SAFELY:
                 self.history.append({"role": "assistant", "content": result.text})
-                return (
-                    f"{response.message}\n\n{diff_display}\n\nNOT applied -- {decision.narration} "
-                    f"(last failure: {classified.failure_class}: {classified.feedback})"
+                return _join_reply(
+                    response.message,
+                    diff_display,
+                    f"NOT applied -- {decision.narration} "
+                    f"(last failure: {classified.failure_class}: {classified.feedback})",
                 )
 
             if decision.action in RELOAD_ACTIONS:
